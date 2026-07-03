@@ -1,4 +1,4 @@
-import React, { useRef, useReducer, useCallback, useState, useEffect } from 'react';
+import React, { useRef, useReducer, useCallback, useState, useEffect, useId } from 'react';
 import { Game } from './game/Game.js';
 
 // ─── helpers ────────────────────────────────────────────────────────────────
@@ -122,7 +122,7 @@ function CharactersList({ characters, hide }) {
             ) : (
               <>
                 <div className="character-notes" />
-                <div className="sprite faceup" />
+                <div className="sprite card" />
               </>
             )
           ) : (
@@ -157,12 +157,14 @@ function PlayerBoard({ player, hide, currentCharacter, game, onDestroy, onSwap, 
         <CharactersList characters={player.characters} hide={hide} />
         <div className="resources">
           <div className="rs-block">
-            <div className="resource-pic"><div className="sprite gold" /></div>
-            <div className="resource-count">{player.coins}</div>
+            <div className="resource-pic"><div className="sprite gold" aria-hidden="true" /></div>
+            {/* UI ONLY: aria-live so screen readers announce gold changes */}
+            <div className="resource-count" aria-live="polite" aria-label={`${player.coins} gold`}>{player.coins}</div>
           </div>
           <div className="rs-block">
-            <div className="resource-pic"><div className="sprite card" /></div>
-            <div className="resource-count">{player.cards.length}</div>
+            <div className="resource-pic"><div className="sprite faceup" aria-hidden="true" /></div>
+            {/* UI ONLY: aria-live so screen readers announce card count changes */}
+            <div className="resource-count" aria-live="polite" aria-label={`${player.cards.length} cards`}>{player.cards.length}</div>
           </div>
         </div>
       </div>
@@ -514,6 +516,8 @@ function CoronationPrompt({ game, player, update }) {
 // ─── Game board ───────────────────────────────────────────────────────────────
 
 function GameBoard({ game, update }) {
+  // UI ONLY: controls visibility of the game log on mobile
+  const [logOpen, setLogOpen] = useState(false);
   const act = (fn) => { fn(); update(); game.checkAutoPlay(); };
   const cc = game.currentCharacter;
 
@@ -627,9 +631,20 @@ function GameBoard({ game, update }) {
         </>
       )}
 
-      {/* Game notes */}
-      <p className="notes-head">Game notes</p>
-      <div className="gamenotes-block">
+      {/* Game notes — collapsible on mobile via UI ONLY state */}
+      <p className="notes-head">
+        Game notes
+        {/* UI ONLY: toggle button shown via CSS only on mobile */}
+        <button
+          className="log-toggle"
+          onClick={() => setLogOpen(v => !v)}
+          aria-expanded={logOpen}
+          aria-label={logOpen ? 'Hide game notes' : 'Show game notes'}
+        >
+          {logOpen ? '▲' : '▼'}
+        </button>
+      </p>
+      <div className={`gamenotes-block${logOpen ? ' log-open' : ''}`}>
         {game.characters && game.characters.content.map((character, i) => (
           <span key={i}>
             {character.isAssassinated && <>{character.name} is assassinated<br /></>}
