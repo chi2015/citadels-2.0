@@ -22,19 +22,48 @@
  * Row 14: belltower              townhall               store                  university
  * Row 15: watchtower             workshop               [empty]                [empty]
  *
+ * IMPORTANT — each 768×1024 cell is NOT fully painted. The actual card
+ * artwork is authored at 405 × 540 px and sits anchored to the TOP-LEFT
+ * corner of its 768×1024 cell; the remaining strip to the right (363px)
+ * and below (484px) is transparent padding baked into the sheet itself.
+ * (Verified with the sheet's alpha channel: every character/district cell
+ * has bbox (0,0,405,540); nothing beyond that is painted.)
+ *
+ * Scaling background-size/position off the full 768×1024 cell — as if the
+ * art filled it — leaves that transparent margin visible inside the card
+ * slot as unwanted empty space. The fix is to scale off the 405×540
+ * CONTENT box instead, so the art itself (not the padded cell) fills the
+ * display container exactly. 405:540 and 768:1024 are both 3:4, and so is
+ * every display container below, so this is a pure scale correction —
+ * no cropping, no stretching, no aspect-ratio change.
+ *
+ * Three cells are the exception: they're painted edge-to-edge (opaque
+ * white matte, alpha bbox = full 768×1024) and must keep the OLD
+ * cell-based math — faceup/card-back (row 4, col 2), gold coin
+ * (row 5, col 3), crown (row 6, col 0).
+ *
  * SCALE MATH (background-size controls rendered scale):
  *
- *   District cards — display 180 × 240 px (natural 3:4 ratio, scale = 180/768)
- *     background-size: 720px 3840px
+ *   District & character cards — display 180 × 240 px
+ *   (content-based scale = 180/405 = 4/9)
+ *     background-size: 1365.333px 7281.778px
  *     cell display:    180 × 240 px
+ *     position:        -(col × 341.333)px  -(row × 455.111)px
+ *
+ *   Card-back icon ".sprite.card" — display 36 × 36 px
+ *   (content-based scale = 36/405)
+ *     background-size: 273.067px 1456.356px
+ *     cell display:    36 × 48 px   → center-crop 36×36: y offset +6px
+ *     position:        -(col × 68.267)px  -(row × 91.022 + 6)px
+ *
+ *   faceup/card-back full card, gold coin, crown — these three sprites
+ *   are painted edge-to-edge, so they keep the ORIGINAL cell-based scale:
+ *
+ *   Faceup card-back (full card) — display 180 × 240 px (scale = 180/768)
+ *     background-size: 720px 3840px
  *     position:        -(col × 180)px  -(row × 240)px
  *
- *   Character cards — display 150 × 200 px (scale = 150/768)
- *     background-size: 600px 3200px
- *     cell display:    150 × 200 px
- *     position:        -(col × 150)px  -(row × 200)px
- *
- *   Coin / card icon — display 36 × 36 px (scale = 36/768)
+ *   Coin / faceup-as-icon — display 36 × 36 px (scale = 36/768)
  *     background-size: 144px 768px
  *     cell display:    36 × 48 px   → center-crop 36×36: y offset +6px
  *     position:        -(col × 36)px  -(row × 48 + 6)px
@@ -80,15 +109,28 @@
   --coin-size: 36px;
   --crown-size:32px;
 
-  /* Precomputed background-size values (scale = 180/768) */
-  --card-bg-w: 720px;   /* 3072 × 180/768 */
-  --card-bg-h: 3840px;  /* 16384 × 180/768 */
-  --char-bg-w: 720px;   /* 3072 × 180/768 */
-  --char-bg-h: 3840px;  /* 16384 × 180/768 */
+  /* Precomputed background-size values, CONTENT-based (scale = 180/405 = 4/9).
+   * Card art occupies only the top-left 405×540 px of each 768×1024 sprite
+   * cell — see the file header for why. These drive district/character
+   * cards and the card-back placeholder, which all display at 180×240. */
+  --card-bg-w: 1365.333px;   /* 3072 × 180/405 */
+  --card-bg-h: 7281.778px;   /* 16384 × 180/405 */
+  --char-bg-w: 1365.333px;   /* 3072 × 180/405 */
+  --char-bg-h: 7281.778px;   /* 16384 × 180/405 */
+
+  /* Full-cell-based background-size values (scale = 180/768), for the three
+   * sprites that ARE painted edge-to-edge: faceup card-back, coin, crown. */
+  --cell-bg-w: 720px;   /* 3072 × 180/768 */
+  --cell-bg-h: 3840px;  /* 16384 × 180/768 */
   --coin-bg-w: 144px;   /* 3072 × 36/768 */
   --coin-bg-h: 768px;   /* 16384 × 36/768 */
   --crown-bg-w:128px;   /* 3072 × 32/768 */
   --crown-bg-h:682.667px; /* 16384 × 32/768 */
+
+  /* Content-based background-size for the .sprite.card 36×36 UI icon
+   * (scale = 36/405) — same content-padding correction, at icon size. */
+  --card-icon-bg-w: 273.067px;  /* 3072 × 36/405 */
+  --card-icon-bg-h: 1456.356px; /* 16384 × 36/405 */
 }
 
 /* ── Reset ──────────────────────────────────────────────────────────────── */
@@ -197,67 +239,68 @@ label { cursor: pointer; }
   transition: transform 0.15s ease, box-shadow 0.15s ease;
 }
 
-/* ─ District card positions (col × 135, row × 180) ─ */
+/* ─ District card positions (content-based pitch: col × 341.333, row × 455.111) ─ */
 /* Row 4 */
-.sprite.ballroom    { background-position: calc(  0 * -180px) calc(  4 * -240px); }
-.sprite.barracks    { background-position: calc(  1 * -180px) calc(  4 * -240px); }
+.sprite.ballroom    { background-position: calc(  0 * -341.333px) calc(  4 * -455.111px); }
+.sprite.barracks    { background-position: calc(  1 * -341.333px) calc(  4 * -455.111px); }
 .sprite.faceup      { background-position: calc(  2 * -180px) calc(  4 * -240px); }
-.sprite.castle      { background-position: calc(  3 * -180px) calc(  4 * -240px); }
+.sprite.castle      { background-position: calc(  3 * -341.333px) calc(  4 * -455.111px); }
 /* Row 5 */
-.sprite.cathedral   { background-position: calc(  0 * -180px) calc(  5 * -240px); }
-.sprite.church      { background-position: calc(  2 * -180px) calc(  5 * -240px); }
+.sprite.cathedral   { background-position: calc(  0 * -341.333px) calc(  5 * -455.111px); }
+.sprite.church      { background-position: calc(  2 * -341.333px) calc(  5 * -455.111px); }
 /* Row 6 */
-.sprite.warehouse   { background-position: calc(  1 * -180px) calc(  6 * -240px); }
-.sprite.dragongate  { background-position: calc(  2 * -180px) calc(  6 * -240px); }
-.sprite.factory     { background-position: calc(  3 * -180px) calc(  6 * -240px); }
+.sprite.warehouse   { background-position: calc(  1 * -341.333px) calc(  6 * -455.111px); }
+.sprite.dragongate  { background-position: calc(  2 * -341.333px) calc(  6 * -455.111px); }
+.sprite.factory     { background-position: calc(  3 * -341.333px) calc(  6 * -455.111px); }
 /* Row 7 */
-.sprite.fortress    { background-position: calc(  0 * -180px) calc(  7 * -240px); }
-.sprite.fountain    { background-position: calc(  1 * -180px) calc(  7 * -240px); }
-.sprite.graveyard   { background-position: calc(  2 * -180px) calc(  7 * -240px); }
-.sprite.greatwall   { background-position: calc(  3 * -180px) calc(  7 * -240px); }
+.sprite.fortress    { background-position: calc(  0 * -341.333px) calc(  7 * -455.111px); }
+.sprite.fountain    { background-position: calc(  1 * -341.333px) calc(  7 * -455.111px); }
+.sprite.graveyard   { background-position: calc(  2 * -341.333px) calc(  7 * -455.111px); }
+.sprite.greatwall   { background-position: calc(  3 * -341.333px) calc(  7 * -455.111px); }
 /* Row 8 */
-.sprite.harbour     { background-position: calc(  0 * -180px) calc(  8 * -240px); }
-.sprite.hospital    { background-position: calc(  1 * -180px) calc(  8 * -240px); }
-.sprite.treasury    { background-position: calc(  2 * -180px) calc(  8 * -240px); }
-.sprite.keep        { background-position: calc(  3 * -180px) calc(  8 * -240px); }
+.sprite.harbour     { background-position: calc(  0 * -341.333px) calc(  8 * -455.111px); }
+.sprite.hospital    { background-position: calc(  1 * -341.333px) calc(  8 * -455.111px); }
+.sprite.treasury    { background-position: calc(  2 * -341.333px) calc(  8 * -455.111px); }
+.sprite.keep        { background-position: calc(  3 * -341.333px) calc(  8 * -455.111px); }
 /* Row 9 */
-.sprite.lab         { background-position: calc(  0 * -180px) calc(  9 * -240px); }
-.sprite.library     { background-position: calc(  1 * -180px) calc(  9 * -240px); }
-.sprite.lighthouse  { background-position: calc(  2 * -180px) calc(  9 * -240px); }
-.sprite.domain      { background-position: calc(  3 * -180px) calc(  9 * -240px); }
+.sprite.lab         { background-position: calc(  0 * -341.333px) calc(  9 * -455.111px); }
+.sprite.library     { background-position: calc(  1 * -341.333px) calc(  9 * -455.111px); }
+.sprite.lighthouse  { background-position: calc(  2 * -341.333px) calc(  9 * -455.111px); }
+.sprite.domain      { background-position: calc(  3 * -341.333px) calc(  9 * -455.111px); }
 /* Row 10 */
-.sprite.maproom     { background-position: calc(  0 * -180px) calc( 10 * -240px); }
-.sprite.market      { background-position: calc(  1 * -180px) calc( 10 * -240px); }
-.sprite.city        { background-position: calc(  2 * -180px) calc( 10 * -240px); }
-.sprite.monastery   { background-position: calc(  3 * -180px) calc( 10 * -240px); }
+.sprite.maproom     { background-position: calc(  0 * -341.333px) calc( 10 * -455.111px); }
+.sprite.market      { background-position: calc(  1 * -341.333px) calc( 10 * -455.111px); }
+.sprite.city        { background-position: calc(  2 * -341.333px) calc( 10 * -455.111px); }
+.sprite.monastery   { background-position: calc(  3 * -341.333px) calc( 10 * -455.111px); }
 /* Row 11 */
-.sprite.museum      { background-position: calc(  0 * -180px) calc( 11 * -240px); }
-.sprite.observatory { background-position: calc(  1 * -180px) calc( 11 * -240px); }
-.sprite.palace      { background-position: calc(  2 * -180px) calc( 11 * -240px); }
-.sprite.park        { background-position: calc(  3 * -180px) calc( 11 * -240px); }
+.sprite.museum      { background-position: calc(  0 * -341.333px) calc( 11 * -455.111px); }
+.sprite.observatory { background-position: calc(  1 * -341.333px) calc( 11 * -455.111px); }
+.sprite.palace      { background-position: calc(  2 * -341.333px) calc( 11 * -455.111px); }
+.sprite.park        { background-position: calc(  3 * -341.333px) calc( 11 * -455.111px); }
 /* Row 12 */
-.sprite.poorhouse   { background-position: calc(  0 * -180px) calc( 12 * -240px); }
-.sprite.armory      { background-position: calc(  1 * -180px) calc( 12 * -240px); }
-.sprite.prison      { background-position: calc(  2 * -180px) calc( 12 * -240px); }
-.sprite.quarry      { background-position: calc(  3 * -180px) calc( 12 * -240px); }
+.sprite.poorhouse   { background-position: calc(  0 * -341.333px) calc( 12 * -455.111px); }
+.sprite.armory      { background-position: calc(  1 * -341.333px) calc( 12 * -455.111px); }
+.sprite.prison      { background-position: calc(  2 * -341.333px) calc( 12 * -455.111px); }
+.sprite.quarry      { background-position: calc(  3 * -341.333px) calc( 12 * -455.111px); }
 /* Row 13 */
-.sprite.school      { background-position: calc(  0 * -180px) calc( 13 * -240px); }
-.sprite.tavern      { background-position: calc(  1 * -180px) calc( 13 * -240px); }
-.sprite.temple      { background-position: calc(  2 * -180px) calc( 13 * -240px); }
-.sprite.throneroom  { background-position: calc(  3 * -180px) calc( 13 * -240px); }
+.sprite.school      { background-position: calc(  0 * -341.333px) calc( 13 * -455.111px); }
+.sprite.tavern      { background-position: calc(  1 * -341.333px) calc( 13 * -455.111px); }
+.sprite.temple      { background-position: calc(  2 * -341.333px) calc( 13 * -455.111px); }
+.sprite.throneroom  { background-position: calc(  3 * -341.333px) calc( 13 * -455.111px); }
 /* Row 14 */
-.sprite.belltower   { background-position: calc(  0 * -180px) calc( 14 * -240px); }
-.sprite.townhall    { background-position: calc(  1 * -180px) calc( 14 * -240px); }
-.sprite.store       { background-position: calc(  2 * -180px) calc( 14 * -240px); }
-.sprite.university  { background-position: calc(  3 * -180px) calc( 14 * -240px); }
+.sprite.belltower   { background-position: calc(  0 * -341.333px) calc( 14 * -455.111px); }
+.sprite.townhall    { background-position: calc(  1 * -341.333px) calc( 14 * -455.111px); }
+.sprite.store       { background-position: calc(  2 * -341.333px) calc( 14 * -455.111px); }
+.sprite.university  { background-position: calc(  3 * -341.333px) calc( 14 * -455.111px); }
 /* Row 15 */
-.sprite.watchtower  { background-position: calc(  0 * -180px) calc( 15 * -240px); }
-.sprite.workshop    { background-position: calc(  1 * -180px) calc( 15 * -240px); }
+.sprite.watchtower  { background-position: calc(  0 * -341.333px) calc( 15 * -455.111px); }
+.sprite.workshop    { background-position: calc(  1 * -341.333px) calc( 15 * -455.111px); }
 
 /* ═══════════════════════════════════════════════════════════════════════════
- * CHARACTER CARD SPRITES (120 × 160 px)
+ * CHARACTER CARD SPRITES — display 180 × 240 px
  * Identified by character class names — never overlap with district names.
- * background-size: 480px 2560px   position: -(col×120)px -(row×160)px
+ * Content-based (scale = 180/405): background-size 1365.333px 7281.778px
+ * position: -(col×341.333)px -(row×455.111)px
  * ═══════════════════════════════════════════════════════════════════════════*/
 .sprite.character1,  .sprite.character2,  .sprite.character3,  .sprite.character4,
 .sprite.character5,  .sprite.character6,  .sprite.character7,  .sprite.character8,
@@ -269,26 +312,35 @@ label { cursor: pointer; }
   height: var(--char-h);
 }
 
+/* .sprite.faceup is painted edge-to-edge (unlike the character portraits
+ * above), so it must override back to the cell-based background-size —
+ * otherwise it'd inherit the content-based --char-bg-w/h and zoom into
+ * just its own top-left corner. Its position rule below already uses the
+ * matching cell-based pitch (-180px/-240px). */
+.sprite.faceup {
+  background-size: var(--cell-bg-w) var(--cell-bg-h);
+}
+
 /* Row 0 — characters */
-.sprite.character1  { background-position: calc(  0 * -180px) calc(  0 * -240px); }
-.sprite.character11 { background-position: calc(  1 * -180px) calc(  0 * -240px); }
-.sprite.character12 { background-position: calc(  2 * -180px) calc(  0 * -240px); }
-.sprite.character2  { background-position: calc(  3 * -180px) calc(  0 * -240px); }
+.sprite.character1  { background-position: calc(  0 * -341.333px) calc(  0 * -455.111px); }
+.sprite.character11 { background-position: calc(  1 * -341.333px) calc(  0 * -455.111px); }
+.sprite.character12 { background-position: calc(  2 * -341.333px) calc(  0 * -455.111px); }
+.sprite.character2  { background-position: calc(  3 * -341.333px) calc(  0 * -455.111px); }
 /* Row 1 */
-.sprite.character3  { background-position: calc(  0 * -180px) calc(  1 * -240px); }
-.sprite.character13 { background-position: calc(  1 * -180px) calc(  1 * -240px); }
-.sprite.character14 { background-position: calc(  2 * -180px) calc(  1 * -240px); }
-.sprite.character4  { background-position: calc(  3 * -180px) calc(  1 * -240px); }
+.sprite.character3  { background-position: calc(  0 * -341.333px) calc(  1 * -455.111px); }
+.sprite.character13 { background-position: calc(  1 * -341.333px) calc(  1 * -455.111px); }
+.sprite.character14 { background-position: calc(  2 * -341.333px) calc(  1 * -455.111px); }
+.sprite.character4  { background-position: calc(  3 * -341.333px) calc(  1 * -455.111px); }
 /* Row 2 */
-.sprite.character15 { background-position: calc(  0 * -180px) calc(  2 * -240px); }
-.sprite.character5  { background-position: calc(  1 * -180px) calc(  2 * -240px); }
-.sprite.character16 { background-position: calc(  2 * -180px) calc(  2 * -240px); }
-.sprite.character6  { background-position: calc(  3 * -180px) calc(  2 * -240px); }
+.sprite.character15 { background-position: calc(  0 * -341.333px) calc(  2 * -455.111px); }
+.sprite.character5  { background-position: calc(  1 * -341.333px) calc(  2 * -455.111px); }
+.sprite.character16 { background-position: calc(  2 * -341.333px) calc(  2 * -455.111px); }
+.sprite.character6  { background-position: calc(  3 * -341.333px) calc(  2 * -455.111px); }
 /* Row 3 */
-.sprite.character7  { background-position: calc(  0 * -180px) calc(  3 * -240px); }
-.sprite.character17 { background-position: calc(  1 * -180px) calc(  3 * -240px); }
-.sprite.character18 { background-position: calc(  2 * -180px) calc(  3 * -240px); }
-.sprite.character8  { background-position: calc(  3 * -180px) calc(  3 * -240px); }
+.sprite.character7  { background-position: calc(  0 * -341.333px) calc(  3 * -455.111px); }
+.sprite.character17 { background-position: calc(  1 * -341.333px) calc(  3 * -455.111px); }
+.sprite.character18 { background-position: calc(  2 * -341.333px) calc(  3 * -455.111px); }
+.sprite.character8  { background-position: calc(  3 * -341.333px) calc(  3 * -455.111px); }
 /* faceup card-back — row 4, col 2 */
 .sprite.faceup      { background-position: calc(  2 * -180px) calc(  4 * -240px); }
 
@@ -306,10 +358,13 @@ label { cursor: pointer; }
   box-shadow: none;
 }
 
-/* Card back icon — row 5, col 1 — 36×36px */
+/* Card back icon — row 5, col 1 — 36×36px. Content-padded like the district/
+ * character cards (art fills only the top-left 405×540 of the cell), so this
+ * uses the content-based icon scale (--card-icon-bg-w/h), not the coin/crown
+ * cell-based scale. */
 .sprite.card {
-  background-size: var(--coin-bg-w) var(--coin-bg-h);
-  background-position: calc(1 * -36px) calc(5 * -48px + -6px);
+  background-size: var(--card-icon-bg-w) var(--card-icon-bg-h);
+  background-position: calc(1 * -68.267px) calc(5 * -91.022px + -6px);
   width:  var(--coin-size);
   height: var(--coin-size);
   border-radius: 4px;
@@ -329,7 +384,7 @@ label { cursor: pointer; }
 /* card icon rendered at character card size when used as face-down placeholder */
 .character-block .sprite.card {
   background-size: var(--char-bg-w) var(--char-bg-h);
-  background-position: calc(1 * -180px) calc(5 * -240px);
+  background-position: calc(1 * -341.333px) calc(5 * -455.111px);
   width:  var(--char-w);
   height: var(--char-h);
   border-radius: 8px;
