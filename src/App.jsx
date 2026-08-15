@@ -1,4 +1,5 @@
 import React, { useRef, useReducer, useCallback, useState, useEffect, useId } from 'react';
+import { createPortal } from 'react-dom';
 import { Game } from './game/Game.js';
 
 // ─── helpers ────────────────────────────────────────────────────────────────
@@ -7,17 +8,63 @@ function sortBy(arr, prop) {
   return [...arr].sort((a, b) => (a[prop] > b[prop] ? 1 : a[prop] < b[prop] ? -1 : 0));
 }
 
-// Sprite card/character item with optional tooltip and click handler
-function CardSprite({ cls, desc, onClick, isCurrent, extra }) {
-  const clickable = !!onClick;
+// Card/character wrapper that shows a description tooltip on hover/focus.
+// The tooltip text is portaled to <body> and positioned with getBoundingClientRect,
+// rather than nested + absolutely positioned inside the wrapper: card rows scroll
+// horizontally (overflow-x: auto), and setting overflow-x forces overflow-y to
+// compute to `auto` too — which clipped the old nested tooltip against the row's
+// own box the moment it grew taller than the row's padding (i.e. almost always).
+// Portaling escapes that clip entirely. The position is a one-time snapshot taken
+// on hover/focus (not live-tracked), so any scroll — including the card row's own
+// horizontal scroll — just dismisses the tooltip rather than letting it drift.
+function Tooltip({ text, className = '', children }) {
+  const ref = useRef(null);
+  const [pos, setPos] = useState(null);
+
+  useEffect(() => {
+    if (!pos) return;
+    const hide = () => setPos(null);
+    // capture:true so this also catches scrolls on descendant elements (e.g. the
+    // horizontally-scrolling card row itself), which don't bubble as scroll events.
+    window.addEventListener('scroll', hide, true);
+    window.addEventListener('resize', hide);
+    return () => {
+      window.removeEventListener('scroll', hide, true);
+      window.removeEventListener('resize', hide);
+    };
+  }, [pos]);
+
+  const show = () => {
+    if (!ref.current) return;
+    const rect = ref.current.getBoundingClientRect();
+    const half = 115; // half of .tooltiptext's 230px width
+    const left = Math.min(Math.max(rect.left + rect.width / 2, half + 4), window.innerWidth - half - 4);
+    // Flip below the card when there isn't roughly enough room above for a tooltip
+    // (sticky header + a few lines of text) — e.g. the top-most "Choose character" row.
+    const below = rect.top < 150;
+    setPos({ left, top: below ? rect.bottom + 10 : rect.top - 10, below });
+  };
+  const hide = () => setPos(null);
+
   return (
-    <div className="tooltip">
-      <div
-        className={`sprite ${cls} card-item${isCurrent ? ' current' : ''}${clickable ? ' card-item-clickable' : ''}`}
-        onClick={onClick}
-      />
-      {desc && <span className="tooltiptext">{desc}</span>}
-      {extra}
+    <div
+      ref={ref}
+      className={`tooltip ${className}`.trim()}
+      onMouseEnter={text ? show : undefined}
+      onMouseLeave={text ? hide : undefined}
+      onFocus={text ? show : undefined}
+      onBlur={text ? hide : undefined}
+    >
+      {children}
+      {text && pos && createPortal(
+        <div
+          className={`tooltiptext${pos.below ? ' tooltip-below' : ''}`}
+          style={{ left: `${pos.left}px`, top: `${pos.top}px` }}
+        >
+          {text}
+        </div>,
+        document.body
+      )}
     </div>
   );
 }
@@ -103,41 +150,40 @@ function StartScreen({ game, onStart, onSetExtended, onRandomExtended,
 
 // ─── Character list (for a player's chosen characters) ──────────────────────
 
+// Characters accumulate one per round for the whole game, and must all stay
+// visible on a single row with no scrolling. .character-block (the flex-row
+// item) is allowed to shrink below its natural 180px once there's no more
+// room; .character-block-scale (its one child, kept at native 180px) is
+// visually scaled down to match via a CSS transform driven by a container
+// query unit — see the .character-block-scale rule in style.css for why
+// this is done as a transform rather than resizing the sprite directly.
 function CharactersList({ characters, hide }) {
   return (
     <div className="characters-list">
-      {characters.map((character, i) => (
-        <div className="character-block tooltip" key={i}>
-          {hide ? (
-            character.revealed ? (
-              <>
-                <div className="character-notes">
-                  {character.isAssassinated && 'assassinated'}
-                  {character.isRobbed && 'robbed'}
-                  {character.isBewitched && 'bewitched'}
-                </div>
-                <div className={`sprite ${character.pic_class} card-item${character.is_current ? ' current' : ''}`} />
-                <span className="tooltiptext">{character.desc}</span>
-              </>
-            ) : (
-              <>
+      {characters.map((character, i) => {
+        if (hide && !character.revealed) {
+          return (
+            <div className="character-block" key={i}>
+              <div className="character-block-scale">
                 <div className="character-notes" />
                 <div className="sprite card" />
-              </>
-            )
-          ) : (
-            <>
+              </div>
+            </div>
+          );
+        }
+        return (
+          <Tooltip className="character-block" text={character.desc} key={i}>
+            <div className="character-block-scale">
               <div className="character-notes">
                 {character.isAssassinated && 'assassinated'}
                 {character.isRobbed && 'robbed'}
                 {character.isBewitched && 'bewitched'}
               </div>
               <div className={`sprite ${character.pic_class} card-item${character.is_current ? ' current' : ''}`} />
-              <span className="tooltiptext">{character.desc}</span>
-            </>
-          )}
-        </div>
-      ))}
+            </div>
+          </Tooltip>
+        );
+      })}
     </div>
   );
 }
@@ -145,9 +191,16 @@ function CharactersList({ characters, hide }) {
 // ─── Player board (profile + districts) ─────────────────────────────────────
 
 function PlayerBoard({ player, hide, currentCharacter, game, onDestroy, onSwap, boardClass }) {
+  // Chosen characters accumulate one per round for the whole game and must all
+  // stay visible with no scrolling (see .characters-list / .character-block in
+  // style.css). .profile's width needs to grow to fit them, so its flex-basis
+  // is computed here from the actual count — CSS alone can't count children.
+  const charCount = Math.max(player.characters.length, 1);
+  const charsFlexBasis = `${charCount * 180 + (charCount - 1) * 8 + 16}px`; // N cards + gaps + row padding
+
   return (
     <div className={`board ${boardClass}`}>
-      <div className="profile">
+      <div className="profile" style={{ '--char-flex-basis': charsFlexBasis }}>
         <div className="profile-head">
           <div className="profile-name">{player.name}</div>
           <div className="profile-crown">
@@ -173,19 +226,14 @@ function PlayerBoard({ player, hide, currentCharacter, game, onDestroy, onSwap, 
           {player.districts.map((district, i) => {
             const isWarlord = currentCharacter && currentCharacter.isWarlordAndHuman;
             const isDiplomat = currentCharacter && currentCharacter.isDiplomatAndHuman;
+            const onClick = (isWarlord && onDestroy) ? () => onDestroy(district)
+              : (isDiplomat && onSwap) ? () => onSwap(district)
+                : undefined;
             return (
-              <div className="tooltip" key={i}>
-                {(isWarlord && onDestroy) ? (
-                  <div className={`sprite ${district.name} card-item card-item-clickable`}
-                    onClick={() => onDestroy(district)} />
-                ) : (isDiplomat && onSwap) ? (
-                  <div className={`sprite ${district.name} card-item card-item-clickable`}
-                    onClick={() => onSwap(district)} />
-                ) : (
-                  <div className={`sprite ${district.name} card-item`} />
-                )}
-                <span className="tooltiptext">{district.desc}</span>
-              </div>
+              <Tooltip text={district.desc} key={i}>
+                <div className={`sprite ${district.name} card-item${onClick ? ' card-item-clickable' : ''}`}
+                  onClick={onClick} />
+              </Tooltip>
             );
           })}
         </div>
@@ -234,11 +282,10 @@ function ActionPanel({ game, isPlayer1, update }) {
           <p>Choose character:</p>
           <div className="cards-list">
             {game.characters.content.filter(c => c.inRound).map((character, i) => (
-              <div className="tooltip" key={i}>
+              <Tooltip text={character.desc} key={i}>
                 <div className={`sprite ${character.pic_class} card-item card-item-clickable`}
                   onClick={() => act(() => { player.takeCharacter(character); game.changePhaze(); })} />
-                <span className="tooltiptext">{character.desc}</span>
-              </div>
+              </Tooltip>
             ))}
           </div>
         </div>
@@ -304,11 +351,10 @@ function ActionPanel({ game, isPlayer1, update }) {
               <p>Choose {enemy.name}&apos;s card to steal:</p>
               <div className="cards-list">
                 {enemy.cards.map((card, i) => (
-                  <div className="tooltip" key={i}>
+                  <Tooltip text={card.desc} key={i}>
                     <div className={`sprite ${card.name} card-item card-item-clickable`}
                       onClick={() => act(() => cc.stealCard(enemy, card))} />
-                    <span className="tooltiptext">{card.desc}</span>
-                  </div>
+                  </Tooltip>
                 ))}
               </div>
             </>
@@ -335,11 +381,10 @@ function ActionPanel({ game, isPlayer1, update }) {
               <p>Choose card to take</p>
               <div className="lighthouse-cards">
                 {game.deck.content.filter(c => c.inDeck).map((card, i) => (
-                  <div className="tooltip" key={i}>
+                  <Tooltip text={card.desc} key={i}>
                     <div className={`sprite ${card.name} card-item card-item-clickable`}
                       onClick={() => act(() => player.lighthouseTake(card))} />
-                    <span className="tooltiptext">{card.desc}</span>
-                  </div>
+                  </Tooltip>
                 ))}
               </div>
             </>
@@ -410,11 +455,10 @@ function ActionPanel({ game, isPlayer1, update }) {
               <p>Choose card to take:</p>
               <div className="cards-list">
                 {game.deck.content.filter(c => c.onChoose).map((card, i) => (
-                  <div className="tooltip" key={i}>
+                  <Tooltip text={card.desc} key={i}>
                     <div className={`sprite ${card.name} card-item card-item-clickable`}
                       onClick={() => act(() => cc.takeCard(game, card))} />
-                    <span className="tooltiptext">{card.desc}</span>
-                  </div>
+                  </Tooltip>
                 ))}
               </div>
             </>
@@ -440,7 +484,7 @@ function PlayerCards({ game, isPlayer1, update }) {
       {isActive && cc && cc.choosed_to_discard && <p>Choose cards to discard</p>}
       <div className="cards-list">
         {player.cards.map((card, i) => (
-          <div className="card-block tooltip" key={i}>
+          <Tooltip className="card-block" text={card.desc} key={i}>
             {/* Checkbox for discard */}
             {isActive && cc && cc.choosed_to_discard && (
               <input type="checkbox" checked={!!card.isChecked}
@@ -470,8 +514,7 @@ function PlayerCards({ game, isPlayer1, update }) {
                 onClick={isActive && cc && !cc.choosed_to_discard ? () => act(() => cc.build(game, card)) : undefined}
               />
             )}
-            <span className="tooltiptext">{card.desc}</span>
-          </div>
+          </Tooltip>
         ))}
       </div>
       {isActive && cc && cc.choosed_to_discard && (
@@ -490,10 +533,9 @@ function GraveyardPrompt({ game, player, update }) {
   return (
     <>
       <p>Do you want to pay 1 coin for taking this card?</p>
-      <div className="tooltip">
+      <Tooltip text={card.desc}>
         <div className={`sprite ${card.name} card-item`} />
-        <span className="tooltiptext">{card.desc}</span>
-      </div>
+      </Tooltip>
       <button onClick={() => act(() => player.useGraveyard(game, true))}>Yes</button>
       <button onClick={() => act(() => player.useGraveyard(game, false))}>No</button>
     </>
@@ -697,8 +739,8 @@ export default function App() {
     }
     const namesArr = { 'Game name': gameName_, 'Your name': yourName_, 'Robot name': robotName_ };
     for (const [key, val] of Object.entries(namesArr)) {
-      if (val && !val.match(/^[0-9A-Za-z_]+$/)) {
-        game.showError(key + ' can contain only the characters: 0-9, A-Z, a-z, _');
+      if (val && !val.match(/^[0-9A-Za-z_ -]+$/)) {
+        game.showError(key + ' can contain only the characters: 0-9, A-Z, a-z, _, -, and spaces');
         return;
       }
     }

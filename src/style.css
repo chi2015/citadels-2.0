@@ -429,19 +429,27 @@ label { cursor: pointer; }
 
 /* ═══════════════════════════════════════════════════════════════════════════
  * TOOLTIP
- * ═══════════════════════════════════════════════════════════════════════════*/
+ * ═══════════════════════════════════════════════════════════════════════════
+ * .tooltiptext is rendered via a React portal straight onto <body> (see the
+ * Tooltip component in App.jsx), NOT nested inside .tooltip — the card rows
+ * it used to live in scroll horizontally (overflow-x: auto), which forces
+ * overflow-y to compute to `auto` too and clips anything that pokes past the
+ * row's own box. A tooltip's height depends on the description's length, so
+ * unlike the card hover-lift there's no fixed padding that could reliably
+ * keep it from being clipped. Portaling escapes that ancestor entirely; the
+ * Tooltip component sets `left`/`top` inline from getBoundingClientRect(). */
 .tooltip {
   position: relative;
   display: inline-block;
 }
 
-.tooltip .tooltiptext {
-  display: none;
-  position: absolute;
+.tooltiptext {
+  position: fixed;
   z-index: 200;
-  bottom: calc(100% + 10px);
-  left: 50%;
-  transform: translateX(-50%);
+  /* JS sets left/top to the trigger's center / top edge; this transform does
+   * the rest — anchor the tooltip's bottom-center (or top-center, when
+   * flipped below) to that point, matching the old bottom:100%;left:50% look. */
+  transform: translate(-50%, -100%);
   width: 230px;
   background: rgba(6,9,22,0.97);
   border: 1px solid var(--color-border-hi);
@@ -458,12 +466,20 @@ label { cursor: pointer; }
   animation: tooltipFadeIn 0.15s ease;
 }
 
+/* Flipped variant: shown below the card (e.g. the top-most "Choose character"
+ * row, where there's no room above for a tooltip). JS already offsets `top`
+ * past the card's bottom edge, so this only needs to re-center horizontally
+ * (no -100% here — the box should hang down from `top`, not sit above it). */
+.tooltiptext.tooltip-below {
+  transform: translate(-50%, 0);
+}
+
 @keyframes tooltipFadeIn {
   from { opacity: 0; }
   to   { opacity: 1; }
 }
 
-.tooltip .tooltiptext::after {
+.tooltiptext::after {
   content: "";
   position: absolute;
   top: 100%;
@@ -473,9 +489,11 @@ label { cursor: pointer; }
   border-top-color: var(--color-border-hi);
 }
 
-.tooltip:hover .tooltiptext,
-.tooltip:focus-within .tooltiptext {
-  display: block;
+.tooltiptext.tooltip-below::after {
+  top: auto;
+  bottom: 100%;
+  border-top-color: transparent;
+  border-bottom-color: var(--color-border-hi);
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -773,7 +791,10 @@ label { cursor: pointer; }
 /* Built districts panel */
 .districts {
   flex: 1;
-  min-width: 0;
+  /* Never fully disappear when .profile grows wide with accumulated
+   * characters — .districts-list can still scroll horizontally within
+   * this floor if a player has built more districts than fit here. */
+  min-width: 160px;
   display: flex;
   flex-direction: column;
 }
@@ -784,7 +805,13 @@ label { cursor: pointer; }
   -webkit-overflow-scrolling: touch;
   scrollbar-width: thin;
   scrollbar-color: var(--color-border) transparent;
-  padding: 8px;
+  /* Extra top headroom for the .card-item-clickable:hover lift (Warlord/
+   * Diplomat district picking) — see .cards-list for the full explanation. */
+  padding: 20px 8px 8px;
+  /* Fixed height (one row of --card-h cards + padding) so this panel doesn't
+   * grow as a player builds more districts over the game — extra cards
+   * scroll horizontally within this same height instead. */
+  height: 268px; /* 240 (--card-h) + 20 (padding-top) + 8 (padding-bottom) */
 }
 
 .districts-list::-webkit-scrollbar { height: 4px; }
@@ -802,7 +829,12 @@ label { cursor: pointer; }
   align-items: flex-start;
   flex-wrap: nowrap;
   gap: 6px;
-  padding: 8px;
+  /* Extra top headroom: setting overflow-x below makes overflow-y compute to
+   * `auto` too, which clips anything that pokes past the padding box — and
+   * .card-item-clickable:hover lifts the card with translateY(-10px) plus a
+   * scale(1.05) grow, which needs ~16px of room above the card to stay
+   * fully visible instead of getting clipped by this scroll container. */
+  padding: 20px 8px 8px;
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
 }
@@ -811,10 +843,17 @@ label { cursor: pointer; }
   display: flex;
   flex-direction: row;
   align-items: flex-start;
-  flex-wrap: wrap;
   gap: 8px;
   padding: 8px;
-  /* No min-height: player profile list may be empty and shouldn't force blank space */
+  width: 100%;
+  /* Chosen characters accumulate one per round for the whole game and must
+   * always stay fully visible — no scrolling. On mobile there's no room to
+   * grow sideways, so extra cards wrap onto new rows instead (this panel's
+   * height is allowed to grow here); see the 640px+ override below, where
+   * there's room to keep everything on one fixed-height row instead. */
+  flex-wrap: wrap;
+  /* Always reserve at least one row, even before a character is chosen. */
+  min-height: 273px; /* 13 (notes) + 4 (gap) + 240 (--char-h) + 8+8 (padding) */
 }
 
 .lighthouse-cards {
@@ -827,13 +866,40 @@ label { cursor: pointer; }
 
 /* ═══════════════════════════════════════════════════════════════════════════
  * CHARACTER BLOCK
+ * ═══════════════════════════════════════════════════════════════════════════
+ * Split into two elements so accumulated characters can shrink to keep
+ * fitting on one row without ever touching the sprite's background-image
+ * math (calibrated for an exact 180×240 rendered size — see the sprite
+ * header comment):
+ *
+ *   .character-block        — the real flex-row item; this is what actually
+ *                              shrinks (flex-shrink) once .characters-list
+ *                              runs out of room. Also a container-query
+ *                              container, so its child below can read back
+ *                              its own (possibly shrunk) width.
+ *   .character-block-scale  — kept at native 180px width — sprite math stays
+ *                              exact — and visually scaled down to match its
+ *                              parent's actual width with a plain transform.
+ *                              `calc(100cqw / 180px)` is 1 at the natural
+ *                              180px size and shrinks proportionally from
+ *                              there, with no JS needed to compute it.
  * ═══════════════════════════════════════════════════════════════════════════*/
 .character-block {
+  display: block;
+  animation: charAppear 0.22s ease both;
+  container-type: inline-size;
+  flex: 0 1 180px;
+  min-width: 48px; /* sane floor so cards never shrink to unusable/zero size */
+}
+
+.character-block-scale {
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 4px;
-  animation: charAppear 0.22s ease both;
+  width: 180px;
+  transform: scale(calc(100cqw / 180px));
+  transform-origin: top left;
 }
 
 @keyframes charAppear {
@@ -1052,13 +1118,6 @@ button.log-toggle {
   border-bottom: 1px solid var(--color-border);
 }
 
-.characters-list {
-  overflow-x: auto;
-  -webkit-overflow-scrolling: touch;
-  flex-wrap: nowrap;
-  min-height: 0;
-}
-
 /* ── Tablet / narrow desktop (640px+) ──────────────────────────────────── */
 @media (min-width: 640px) {
   .main-block {
@@ -1076,14 +1135,26 @@ button.log-toggle {
   .board-1 { border-color: var(--color-gold); }
 
   .profile {
-    width: 200px;
+    /* Grow to fit however many characters have accumulated instead of a
+     * fixed 200px, so .characters-list below never needs to scroll —
+     * .districts (flex:1) yields the space. flex-basis comes from
+     * --char-flex-basis (set inline in PlayerBoard from player.characters.
+     * length — CSS alone can't count children); flex-shrink:1 (overriding
+     * the base rule's :0) lets .profile give up some of that width once
+     * .districts hits its own min-width and there's genuinely no more room,
+     * at which point .character-block below shrinks to compensate. */
+    flex: 0 1 var(--char-flex-basis, 196px);
     border-right: 1px solid var(--color-border);
     border-bottom: none;
   }
 
   .characters-list {
-    flex-wrap: wrap;
-    overflow-x: visible;
+    /* Room to grow sideways here, so keep everything on one row: fixed
+     * height (never grows/shrinks) and no scrolling — .profile above sizes
+     * to fit it (or shrinks it via .character-block, once .profile itself
+     * runs out of room). */
+    flex-wrap: nowrap;
+    height: 273px;
   }
 
   .head-block { padding: 10px 16px; }
