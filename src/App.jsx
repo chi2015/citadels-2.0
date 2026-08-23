@@ -8,6 +8,24 @@ function sortBy(arr, prop) {
   return [...arr].sort((a, b) => (a[prop] > b[prop] ? 1 : a[prop] < b[prop] ? -1 : 0));
 }
 
+// Built-districts count icon — a small citadel/skyline silhouette. There's no
+// spare cell for this in the sprite-new.png sheet (see the sprite header
+// comment in style.css), so it's a plain inline SVG instead, sized/colored to
+// match the gold-coin and card-back icons via .icon-districts in style.css.
+function DistrictsIcon() {
+  return (
+    <svg className="icon-districts" viewBox="0 0 36 36" aria-hidden="true" focusable="false">
+      <rect x="4" y="30" width="28" height="3" />
+      <rect x="6" y="16" width="6" height="14" />
+      <polygon points="6,16 9,11 12,16" />
+      <rect x="15" y="10" width="6" height="20" />
+      <polygon points="15,10 18,4 21,10" />
+      <rect x="24" y="16" width="6" height="14" />
+      <polygon points="24,16 27,11 30,16" />
+    </svg>
+  );
+}
+
 // Card/character wrapper that shows a description tooltip on hover/focus.
 // The tooltip text is portaled to <body> and positioned with getBoundingClientRect,
 // rather than nested + absolutely positioned inside the wrapper: card rows scroll
@@ -218,6 +236,11 @@ function PlayerBoard({ player, hide, currentCharacter, game, onDestroy, onSwap, 
             <div className="resource-pic"><div className="sprite faceup" aria-hidden="true" /></div>
             {/* UI ONLY: aria-live so screen readers announce card count changes */}
             <div className="resource-count" aria-live="polite" aria-label={`${player.cards.length} cards`}>{player.cards.length}</div>
+          </div>
+          <div className="rs-block">
+            <div className="resource-pic"><DistrictsIcon /></div>
+            {/* UI ONLY: aria-live so screen readers announce built-district count changes */}
+            <div className="resource-count" aria-live="polite" aria-label={`${player.districts.length} districts built`}>{player.districts.length}</div>
           </div>
         </div>
       </div>
@@ -590,23 +613,27 @@ function GameBoard({ game, update }) {
         <div className="title-block">
           <h1>Game: {game.name}</h1>
           <h3>(to {game.player1.districts_to_close} districts)</h3>
-          {!game.phazeIsEnd && (
-            <h2>
-              Phaze: {game.phaze}.{' '}
-              {game.phazeIsAction && cc && <>King summons {cc.name}. </>}
-              {!game.player1.on_coronation && !game.player2.on_coronation && (
-                <>
-                  {game.activePlayer.name}&apos;s turn
-                  {game.automatic && game.activePlayer.is_robot && game.activePlayer.time > 0 &&
-                    ` (0:0${game.activePlayer.time})`}
-                </>
-              )}
-              {game.player1.on_coronation && <>{game.player1.name}&apos;s turn</>}
-              {game.player2.on_coronation && <>{game.player2.name}&apos;s turn</>}
-            </h2>
-          )}
-          {game.phazeIsEnd && <h2>Game finished! The winner is {game.winner}</h2>}
         </div>
+        {/* .head-phase is its own grid item (not nested in .title-block) so its
+            dynamic, sometimes-long status text — which can wrap to another
+            line on narrow screens — has its own row and can never grow into
+            the finish button's reserved column. See .head-block in style.css. */}
+        {!game.phazeIsEnd && (
+          <h2 className="head-phase">
+            Phaze: {game.phaze}.{' '}
+            {game.phazeIsAction && cc && <>King summons {cc.name}. </>}
+            {!game.player1.on_coronation && !game.player2.on_coronation && (
+              <>
+                {game.activePlayer.name}&apos;s turn
+                {game.automatic && game.activePlayer.is_robot && game.activePlayer.time > 0 &&
+                  ` (0:0${game.activePlayer.time})`}
+              </>
+            )}
+            {game.player1.on_coronation && <>{game.player1.name}&apos;s turn</>}
+            {game.player2.on_coronation && <>{game.player2.name}&apos;s turn</>}
+          </h2>
+        )}
+        {game.phazeIsEnd && <h2 className="head-phase">Game finished! The winner is {game.winner}</h2>}
         {!game.phazeIsEnd && (
           <button className="finish" onClick={() => game.finish()}>Finish game</button>
         )}

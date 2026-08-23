@@ -381,6 +381,15 @@ label { cursor: pointer; }
   box-shadow: none;
 }
 
+/* Built-districts count icon — plain inline SVG (no spare sprite-sheet cell
+ * for it), sized/colored to match the coin and card-back icons above. */
+.icon-districts {
+  width:  var(--coin-size);
+  height: var(--coin-size);
+  flex-shrink: 0;
+  fill: var(--color-gold);
+}
+
 /* card icon rendered at character card size when used as face-down placeholder */
 .character-block .sprite.card {
   background-size: var(--char-bg-w) var(--char-bg-h);
@@ -515,10 +524,31 @@ label { cursor: pointer; }
   flex-direction: column;
   align-items: center;
   min-height: 100dvh;
+  /* Lets .start-subblock's margin-top below track this element's own
+   * rendered width (via cqw) instead of the raw viewport width — needed so
+   * the same formula works once .main-block caps that width at 640px+. */
+  container-type: inline-size;
   background-image: url('/startpic.jpg');
-  background-size: cover;
+  /* Mobile: contain, not cover. The box art (776×1024) is far less tall
+   * relative to its width than a phone viewport is relative to its width
+   * (.start-block is min-height:100dvh, and the form below the hero image
+   * pushes that height well past one screen) — cover scales the image up
+   * to fill that whole height, which makes it much wider than the screen
+   * and crops both edges, chopping the "CITADELS" title off. contain fits
+   * the whole image with no crop; no-repeat stops it tiling into the
+   * leftover space contain can leave below the image. */
+  background-size: contain;
+  background-repeat: no-repeat;
   background-position: center top;
   position: relative;
+}
+
+/* Desktop: plenty of width relative to the visible hero height, so cover's
+ * crop only trims the (unimportant) bottom of the art, not the sides. */
+@media (min-width: 640px) {
+  .start-block {
+    background-size: cover;
+  }
 }
 
 .start-crown {
@@ -532,7 +562,12 @@ label { cursor: pointer; }
   background: rgba(6, 9, 22, 0.95);
   border: 1px solid var(--color-border);
   border-radius: 12px;
-  margin: 200px 16px 24px;
+  /* Sit just under the box-art title (name + "CITADELS" + underline banner,
+   * which ends at ~31% of the art's own rendered height), never overlapping
+   * it, on both the mobile (contain) and desktop (cover) background modes —
+   * both scale the art by .start-block's width in the range this app
+   * renders at, so cqw tracks the title's bottom edge at any breakpoint. */
+  margin: calc(32cqw + 20px) 16px 24px;
   width: calc(100% - 32px);
   max-width: 400px;
   display: flex;
@@ -641,7 +676,14 @@ label { cursor: pointer; }
 
 /* ═══════════════════════════════════════════════════════════════════════════
  * STICKY GAME HEADER
- * ═══════════════════════════════════════════════════════════════════════════*/
+ * ═══════════════════════════════════════════════════════════════════════════
+ * Grid, not a single flex column + an absolutely-positioned button: the
+ * phase line (.head-phase) shows dynamic, often-long game-status text
+ * ("Phaze: action. King summons X. Y's turn") that can run right up to —
+ * or wrap onto a 2nd line below — wherever a same-row/absolutely-positioned
+ * button happened to land. Grid areas give the finish button its own
+ * reserved column, beside the title only, so growth in the phase text
+ * (more chars, or wrapping to more lines) can never reach into it. */
 .head-block {
   position: sticky;
   top: 0;
@@ -650,10 +692,19 @@ label { cursor: pointer; }
   border-bottom: 2px solid var(--color-border);
   padding: 8px 12px;
   box-shadow: 0 4px 16px rgba(0,0,0,0.55);
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  column-gap: 12px;
+  row-gap: 2px;
+  grid-template-areas:
+    "title   finish"
+    "phase   phase"
+    "restart restart";
+  align-items: start;
 }
+
+.title-block { grid-area: title; min-width: 0; }
+.head-phase  { grid-area: phase; min-width: 0; }
 
 .title-block h1 {
   font-size: 15px;
@@ -668,7 +719,7 @@ label { cursor: pointer; }
   font-family: system-ui, sans-serif;
 }
 
-.title-block h2 {
+.head-phase {
   font-size: 13px;
   color: var(--color-text);
   font-weight: 500;
@@ -676,10 +727,8 @@ label { cursor: pointer; }
 }
 
 .head-block button.finish {
-  position: absolute;
-  right: 10px;
-  top: 50%;
-  transform: translateY(-50%);
+  grid-area: finish;
+  justify-self: end;
   font-size: 12px;
   min-height: 34px;
   padding: 4px 12px;
@@ -690,12 +739,13 @@ label { cursor: pointer; }
 
 .head-block button.finish:hover:not(:disabled) {
   background: rgba(160,30,30,0.38);
-  transform: translateY(-50%) scale(1.02);
+  transform: scale(1.02);
 }
 
 .head-block button.restart {
-  display: block;
-  margin: 6px auto 0;
+  grid-area: restart;
+  justify-self: center;
+  margin-top: 6px;
   min-height: 40px;
   background: linear-gradient(135deg, #1e4a14, #0a2808);
   border-color: #4caf50;
@@ -1183,27 +1233,25 @@ button.log-toggle {
 /* ── Full desktop (1024px+) ─────────────────────────────────────────────── */
 @media (min-width: 1024px) {
   .head-block {
-    flex-direction: row;
-    align-items: center;
-    justify-content: space-between;
-    gap: 16px;
+    /* Plenty of width here for title + phase text + button on one row. */
+    grid-template-columns: auto 1fr auto;
+    grid-template-areas:
+      "title   phase   finish"
+      "restart restart restart";
+    align-items: baseline;
+    column-gap: 16px;
   }
 
   .title-block {
     display: flex;
     align-items: baseline;
     gap: 14px;
-    flex: 1;
   }
 
   .title-block h1 { font-size: 17px; }
-  .title-block h2 { font-size: 14px; }
+  .head-phase { font-size: 14px; }
 
-  .head-block button.finish {
-    position: static;
-    transform: none;
-  }
-
+  .head-block button.finish { align-self: center; }
   .head-block button.finish:hover:not(:disabled) { transform: scale(1.02); }
 
   /* Unwrap hand cards on large screens */

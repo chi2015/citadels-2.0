@@ -7,7 +7,7 @@ import { Strategy } from './Strategy.js';
 export class Game {
   constructor() {
     this.name = 'new game';
-    this.version = '1.1.2';
+    this.version = '2.0.2';
     this.player1 = null;
     this.player2 = null;
     this.player1_strategy = null;
@@ -359,7 +359,12 @@ export class Game {
 
     if (this.phaze === 'choose' || this.phaze === 'discard') {
       strategy.execStrategy(3000);
-    } else if (this.phaze === 'action' && this.currentCharacter && this.currentCharacter.player === robotPlayer) {
+    } else if (this.phaze === 'action' && this.currentCharacter && this.currentCharacter.handle_player === robotPlayer) {
+      // handle_player, not player: a character bewitched by the robot's
+      // Witch is played by the robot even though .player is still its
+      // original (human) owner — see Character.reveal(). Checking .player
+      // here missed that case entirely, so the robot never resumed its own
+      // (bewitched) turn and the game just sat there.
       strategy.execStrategy(5000);
     }
   }

@@ -39,8 +39,10 @@ export class Character {
   get isAssassinated() { return this.state === 'assassinated'; }
   get isRobbed() { return this.state === 'robbed'; }
   get isBewitched() { return this.state === 'bewitched'; }
-  get isWarlordAndHuman() { return this.name === 'Warlord' && this.player && !this.player.is_robot; }
-  get isDiplomatAndHuman() { return this.name === 'Diplomat' && this.player && !this.player.is_robot; }
+  // handle_player, not player: whoever bewitched this character controls its
+  // turn, not its original owner — see reveal() and checkAutoPlay() (Game.js).
+  get isWarlordAndHuman() { return this.name === 'Warlord' && this.handle_player && !this.handle_player.is_robot; }
+  get isDiplomatAndHuman() { return this.name === 'Diplomat' && this.handle_player && !this.handle_player.is_robot; }
 
   reveal(game) {
     this.revealed = true;
@@ -59,6 +61,12 @@ export class Character {
         thief_owner.coins += coins;
       }
     }
+    // A bewitched character's original owner still takes its income step
+    // (take coins / choose cards) themselves — checkBewitched() (called from
+    // takeCoins()/takeCard()) hands handle_player and activePlayer to the
+    // Witch's owner only once that's done, for the rest of the turn (build +
+    // ability). So handle_player starts as the original owner here, same as
+    // any other character.
     this.handle_player = this.player;
     game.activePlayer = this.handle_player;
     this.is_current = true;
