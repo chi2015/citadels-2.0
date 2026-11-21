@@ -24,6 +24,7 @@ export class Game {
     this.extended = [];
     this.phaze = 'start';
     this.notifyUI = null; // set by React to trigger re-render
+    this.onError = null;  // optional: set by React to show errors inline
 
     this._bindUnload();
   }
@@ -174,9 +175,10 @@ export class Game {
   }
 
   showError(text) {
-    if (!this.activePlayer || !this.activePlayer.is_robot) {
-      Swal.fire('Error', text, 'error');
-    }
+    if (this.activePlayer && this.activePlayer.is_robot) return;
+    // The UI can register onError to show the message inline instead of a popup.
+    if (this.onError) this.onError(text);
+    else Swal.fire('Error', text, 'error');
   }
 
   save() {

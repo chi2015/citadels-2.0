@@ -138,7 +138,7 @@ export class Character {
       return;
     }
     if (this.handle_player.districts.filter(d => d.name === card.name).length > this.handle_player.hasDistrict('quarry')) {
-      game.showError("You can't build dublicate district");
+      game.showError("You already have this district in your city");
       return;
     }
 
@@ -733,7 +733,7 @@ export class Diplomat extends ColourCharacter {
       game.showError('Not enough coins to swap this district');
     } else if (player.districts.filter(d => d.name === your_district.name).length > player.hasDistrict('quarry') ||
       this.handle_player.districts.filter(d => d.name === enemy_district.name).length > this.handle_player.hasDistrict('quarry')) {
-      game.showError('You cannot swap dublicate districts');
+      game.showError('You cannot swap for a duplicate district');
     } else {
       let compensation = 0;
       const enemy_cost = enemy_district.cost + player.hasDistrict('greatwall') - (enemy_district.name === 'greatwall' ? 1 : 0);

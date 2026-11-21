@@ -22,74 +22,48 @@
  * Row 14: belltower              townhall               store                  university
  * Row 15: watchtower             workshop               [empty]                [empty]
  *
- * IMPORTANT — each 768×1024 cell is NOT fully painted. The actual card
- * artwork is authored at 405 × 540 px and sits anchored to the TOP-LEFT
- * corner of its 768×1024 cell; the remaining strip to the right (363px)
- * and below (484px) is transparent padding baked into the sheet itself.
- * (Verified with the sheet's alpha channel: every character/district cell
- * has bbox (0,0,405,540); nothing beyond that is painted.)
- *
- * Scaling background-size/position off the full 768×1024 cell — as if the
- * art filled it — leaves that transparent margin visible inside the card
- * slot as unwanted empty space. The fix is to scale off the 405×540
- * CONTENT box instead, so the art itself (not the padded cell) fills the
- * display container exactly. 405:540 and 768:1024 are both 3:4, and so is
- * every display container below, so this is a pure scale correction —
- * no cropping, no stretching, no aspect-ratio change.
- *
- * Three cells are the exception: they're painted edge-to-edge (opaque
- * white matte, alpha bbox = full 768×1024) and must keep the OLD
- * cell-based math — faceup/card-back (row 4, col 2), gold coin
- * (row 5, col 3), crown (row 6, col 0).
- *
- * SCALE MATH (background-size controls rendered scale):
- *
- *   District & character cards — display 180 × 240 px
- *   (content-based scale = 180/405 = 4/9)
+ * Each character/district cell's art is 405 × 540 px anchored top-left in
+ * its 768×1024 cell (the rest is transparent), so card sprites scale off
+ * that content box: at a 180 × 240 display size
  *     background-size: 1365.333px 7281.778px
- *     cell display:    180 × 240 px
  *     position:        -(col × 341.333)px  -(row × 455.111)px
  *
- *   Card-back icon ".sprite.card" — display 36 × 36 px
- *   (content-based scale = 36/405)
- *     background-size: 273.067px 1456.356px
- *     cell display:    36 × 48 px   → center-crop 36×36: y offset +6px
- *     position:        -(col × 68.267)px  -(row × 91.022 + 6)px
+ * The coin, crown and faceup cells have an opaque white matte, so the UI no
+ * longer uses them — those icons are inline SVGs in App.jsx.
  *
- *   faceup/card-back full card, gold coin, crown — these three sprites
- *   are painted edge-to-edge, so they keep the ORIGINAL cell-based scale:
- *
- *   Faceup card-back (full card) — display 180 × 240 px (scale = 180/768)
- *     background-size: 720px 3840px
- *     position:        -(col × 180)px  -(row × 240)px
- *
- *   Coin / faceup-as-icon — display 36 × 36 px (scale = 36/768)
- *     background-size: 144px 768px
- *     cell display:    36 × 48 px   → center-crop 36×36: y offset +6px
- *     position:        -(col × 36)px  -(row × 48 + 6)px
- *
- *   Crown icon — display 32 × 32 px (scale = 32/768)
- *     background-size: 128px 682.667px
- *     cell display:    32 × 42.667 px → center-crop 32×32: y offset +5.333px
- *     position:        -(col × 32)px  -(row × 42.667 + 5.333)px
+ * Every card is rendered at the calibrated 180×240 and visually scaled with
+ * a transform inside a .cardface box sized by --s (see CARD FACE below), so
+ * the sprite math above never changes with card size.
  * ═══════════════════════════════════════════════════════════════════════════*/
 
-/* ── Google Fonts ───────────────────────────────────────────────────────── */
 @import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700&display=swap');
 
 /* ── Design tokens ──────────────────────────────────────────────────────── */
 :root {
-  /* Palette */
-  --color-bg:          #060c1a;
-  --color-surface:     #0c1828;
-  --color-surface-2:   #122038;
-  --color-border:      #1e3d6a;
-  --color-border-hi:   #2d5c9a;
-  --color-gold:        #5ab3e8;
-  --color-gold-glow:   #7ecef8;
-  --color-text:        #cce4f8;
-  --color-text-muted:  #5880a8;
-  --color-text-dim:    #1c3252;
+  /* Warm palette: brown-black table, dark wood/leather panels, real gold,
+   * parchment text. Blue is reserved for "your turn"; ember for the robot. */
+  --color-bg:          #120d0a;
+  --color-surface:     #211812;
+  --color-surface-2:   #2c2017;
+  --color-surface-3:   #3a2b1f;
+  --color-border:      #4d3826;
+  --color-border-hi:   #7a5a3a;
+  --color-gold:        #d4a64a;
+  --color-gold-glow:   #f0c96d;
+  --color-gold-deep:   #8f6b2a;
+  --color-text:        #eee0c2;
+  --color-text-muted:  #c1aa82;
+  --color-text-dim:    #97835f;
+
+  --color-you:         #5ab3e8;
+  --color-you-hi:      #8fd0f5;
+  --color-you-bg:      rgba(90, 179, 232, 0.12);
+  --color-robot:       #e2894f;
+  --color-robot-bg:    rgba(226, 137, 79, 0.12);
+  --color-danger:      #e3573f;
+  --color-danger-bg:   rgba(227, 87, 63, 0.14);
+  --color-good:        #8cc56f;
+  --color-amber:       #f2ad3a;
 
   /* District type colors */
   --color-noble:    #d4af37;
@@ -100,37 +74,46 @@
 
   /* Sprite */
   --sprite-url: url('/sprite-new.png');
-
-  /* Rendered card sizes — districts and characters share the same 180×240 container */
   --card-w:    180px;
   --card-h:    240px;
-  --char-w:    180px;
-  --char-h:    240px;
-  --coin-size: 36px;
-  --crown-size:32px;
-
-  /* Precomputed background-size values, CONTENT-based (scale = 180/405 = 4/9).
-   * Card art occupies only the top-left 405×540 px of each 768×1024 sprite
-   * cell — see the file header for why. These drive district/character
-   * cards and the card-back placeholder, which all display at 180×240. */
   --card-bg-w: 1365.333px;   /* 3072 × 180/405 */
   --card-bg-h: 7281.778px;   /* 16384 × 180/405 */
-  --char-bg-w: 1365.333px;   /* 3072 × 180/405 */
-  --char-bg-h: 7281.778px;   /* 16384 × 180/405 */
+  --char-w:    180px;
+  --char-h:    240px;
+  --char-bg-w: 1365.333px;
+  --char-bg-h: 7281.778px;
+  --cell-bg-w: 720px;        /* 3072 × 180/768 (edge-to-edge cells) */
+  --cell-bg-h: 3840px;
 
-  /* Full-cell-based background-size values (scale = 180/768), for the three
-   * sprites that ARE painted edge-to-edge: faceup card-back, coin, crown. */
-  --cell-bg-w: 720px;   /* 3072 × 180/768 */
-  --cell-bg-h: 3840px;  /* 16384 × 180/768 */
-  --coin-bg-w: 144px;   /* 3072 × 36/768 */
-  --coin-bg-h: 768px;   /* 16384 × 36/768 */
-  --crown-bg-w:128px;   /* 3072 × 32/768 */
-  --crown-bg-h:682.667px; /* 16384 × 32/768 */
+  /* Card display scales (× 180×240). Mobile values; see media queries. */
+  --s-track: 0.17;
+  --s-xs:    0.24;
+  --s-sm:    0.4;
+  --s-md:    0.5;
+  --s-lg:    0.5;
 
-  /* Content-based background-size for the .sprite.card 36×36 UI icon
-   * (scale = 36/405) — same content-padding correction, at icon size. */
-  --card-icon-bg-w: 273.067px;  /* 3072 × 36/405 */
-  --card-icon-bg-h: 1456.356px; /* 16384 × 36/405 */
+  --radius: 10px;
+  --gutter: 12px;
+}
+
+@media (min-width: 640px) {
+  :root {
+    --s-track: 0.2;
+    --s-xs:    0.28;
+    --s-sm:    0.46;
+    --s-md:    0.62;
+    --s-lg:    0.66;
+    --gutter:  16px;
+  }
+}
+
+@media (min-width: 1024px) {
+  :root {
+    --s-xs: 0.3;
+    --s-sm: 0.5;
+    --s-md: 0.68;
+    --s-lg: 0.62;
+  }
 }
 
 /* ── Reset ──────────────────────────────────────────────────────────────── */
@@ -140,7 +123,10 @@ html { font-size: 14px; -webkit-text-size-adjust: 100%; }
 
 body {
   font-family: system-ui, -apple-system, 'Helvetica Neue', Arial, sans-serif;
-  background: var(--color-bg);
+  background:
+    radial-gradient(ellipse at 50% -10%, rgba(212, 166, 74, 0.08), transparent 60%),
+    var(--color-bg);
+  background-attachment: fixed;
   color: var(--color-text);
   min-height: 100dvh;
   overflow-x: hidden;
@@ -153,21 +139,29 @@ h1, h2, h3 {
 }
 
 a { color: var(--color-gold); }
-a:hover { text-decoration: underline; }
+a:hover { color: var(--color-gold-glow); }
 
-p { margin: 4px 0; }
+fieldset { border: none; min-width: 0; }
+
+.sr-only {
+  position: absolute !important;
+  width: 1px; height: 1px;
+  padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0 0 0 0);
+  white-space: nowrap; border: 0;
+}
 
 /* ── Buttons ────────────────────────────────────────────────────────────── */
 button {
-  font-family: system-ui, -apple-system, sans-serif;
+  font-family: inherit;
   font-size: 14px;
   font-weight: 600;
   min-height: 44px;
   padding: 8px 16px;
   cursor: pointer;
   touch-action: manipulation;
-  border-radius: 6px;
-  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  border: 1px solid var(--color-border-hi);
   background: var(--color-surface-2);
   color: var(--color-text);
   transition: background 0.12s, transform 0.1s, box-shadow 0.12s, border-color 0.12s;
@@ -176,54 +170,88 @@ button {
 }
 
 button:hover:not(:disabled) {
-  background: #162848;
+  background: var(--color-surface-3);
   border-color: var(--color-gold);
-  box-shadow: 0 0 8px rgba(90,179,232,0.35);
 }
 
 button:active:not(:disabled) { transform: scale(0.97); }
 
 button:disabled {
-  opacity: 0.38;
+  opacity: 0.45;
   cursor: not-allowed;
-  filter: saturate(0.4);
 }
 
-button:focus-visible {
+button:focus-visible,
+a:focus-visible,
+input:focus-visible {
   outline: 2px solid var(--color-gold-glow);
   outline-offset: 2px;
 }
 
+button[aria-pressed="true"] {
+  border-color: var(--color-gold);
+  background: rgba(212, 166, 74, 0.18);
+  color: var(--color-gold-glow);
+}
+
+.btn-primary {
+  background: linear-gradient(180deg, #e0b65a, #b98a32);
+  border-color: #f0c96d;
+  color: #24180c;
+  box-shadow: 0 2px 0 #6e4f1c, 0 4px 14px rgba(212, 166, 74, 0.25);
+}
+.btn-primary:hover:not(:disabled) {
+  background: linear-gradient(180deg, #ecc56b, #c6963b);
+  border-color: #ffe09a;
+  color: #24180c;
+}
+
+.btn-end {
+  background: var(--color-you-bg);
+  border-color: var(--color-you);
+  color: var(--color-you-hi);
+  margin-left: auto;
+}
+.btn-end:hover:not(:disabled) {
+  background: rgba(90, 179, 232, 0.24);
+  border-color: var(--color-you-hi);
+}
+
+.btn-quiet {
+  background: transparent;
+  border-color: var(--color-border-hi);
+  color: var(--color-text-muted);
+}
+
+.btn-danger {
+  background: var(--color-danger-bg);
+  border-color: var(--color-danger);
+  color: #ffb4a6;
+}
+.btn-danger:hover:not(:disabled) {
+  background: rgba(227, 87, 63, 0.26);
+  border-color: #ff8a73;
+}
+
+.btn-small { min-height: 34px; padding: 4px 12px; font-size: 13px; }
+.btn-large { min-height: 52px; min-width: 180px; font-size: 17px; font-family: 'Cinzel', serif; letter-spacing: 0.04em; }
+
 /* ── Form controls ──────────────────────────────────────────────────────── */
 input[type="text"] {
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-radius: 4px;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border-hi);
+  border-radius: 6px;
   color: var(--color-text);
-  font-size: 14px;
-  padding: 6px 10px;
-  min-height: 36px;
-  width: 180px;
+  font-size: 15px;
+  padding: 8px 10px;
+  min-height: 40px;
+  width: 100%;
+  min-width: 0;
 }
-
-input[type="text"]:focus {
-  outline: 2px solid var(--color-gold);
-  outline-offset: 1px;
-}
-
-input[type="radio"],
-input[type="checkbox"] {
-  width: 18px;
-  height: 18px;
-  accent-color: var(--color-gold);
-  cursor: pointer;
-  flex-shrink: 0;
-}
-
-label { cursor: pointer; }
+input[type="text"]::placeholder { color: var(--color-text-dim); }
 
 /* ═══════════════════════════════════════════════════════════════════════════
- * SPRITE BASE — DISTRICT CARDS (135 × 180 px)
+ * SPRITE BASE
  * ═══════════════════════════════════════════════════════════════════════════*/
 .sprite {
   background-image:  var(--sprite-url);
@@ -234,9 +262,6 @@ label { cursor: pointer; }
   height: var(--card-h);
   display: block;
   flex-shrink: 0;
-  border-radius: 8px;
-  box-shadow: 0 4px 12px rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,255,255,0.06);
-  transition: transform 0.15s ease, box-shadow 0.15s ease;
 }
 
 /* ─ District card positions (content-based pitch: col × 341.333, row × 455.111) ─ */
@@ -345,165 +370,270 @@ label { cursor: pointer; }
 .sprite.faceup      { background-position: calc(  2 * -180px) calc(  4 * -240px); }
 
 /* ═══════════════════════════════════════════════════════════════════════════
- * UI ICONS
+ * ICONS (inline SVG)
  * ═══════════════════════════════════════════════════════════════════════════*/
+.icon { width: 24px; height: 24px; flex-shrink: 0; display: block; }
 
-/* Coin (gold) — row 5, col 3 — 36×36px */
-.sprite.gold {
-  background-size: var(--coin-bg-w) var(--coin-bg-h);
-  background-position: calc(3 * -36px) calc(5 * -48px + -6px);
-  width:  var(--coin-size);
-  height: var(--coin-size);
-  border-radius: 50%;
-  box-shadow: none;
-}
+.icon-coin .coin-rim  { fill: #9c7428; }
+.icon-coin .coin-face { fill: var(--color-gold); }
+.icon-coin .coin-mark { fill: #8a6421; }
 
-/* Card back icon — row 5, col 1 — 36×36px. Content-padded like the district/
- * character cards (art fills only the top-left 405×540 of the cell), so this
- * uses the content-based icon scale (--card-icon-bg-w/h), not the coin/crown
- * cell-based scale. */
-.sprite.card {
-  background-size: var(--card-icon-bg-w) var(--card-icon-bg-h);
-  background-position: calc(1 * -68.267px) calc(5 * -91.022px + -6px);
-  width:  var(--coin-size);
-  height: var(--coin-size);
-  border-radius: 4px;
-  box-shadow: none;
-}
+.icon-crown { fill: var(--color-gold); filter: drop-shadow(0 1px 2px rgba(0,0,0,0.6)); }
 
-/* faceup rendered at icon size when used as resource indicator */
-.resource-pic .sprite.faceup {
-  background-size: var(--coin-bg-w) var(--coin-bg-h);
-  background-position: calc(2 * -36px) calc(4 * -48px + -6px);
-  width:  var(--coin-size);
-  height: var(--coin-size);
-  border-radius: 4px;
-  box-shadow: none;
-}
+.icon-cards .cards-back  { fill: #5a4029; stroke: var(--color-gold-deep); stroke-width: 1.5; }
+.icon-cards .cards-front { fill: #6e4e31; stroke: var(--color-gold); stroke-width: 1.5; }
+.icon-cards .cards-mark  { fill: var(--color-gold); }
 
-/* Built-districts count icon — plain inline SVG (no spare sprite-sheet cell
- * for it), sized/colored to match the coin and card-back icons above. */
-.icon-districts {
-  width:  var(--coin-size);
-  height: var(--coin-size);
+.icon-districts { fill: var(--color-gold); }
+
+.dots span { animation: dotBlink 1.2s infinite both; }
+.dots span:nth-child(2) { animation-delay: 0.2s; }
+.dots span:nth-child(3) { animation-delay: 0.4s; }
+@keyframes dotBlink { 0%, 80%, 100% { opacity: 0.2; } 40% { opacity: 1; } }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+ * CARD FACE — sprite at native 180×240, scaled into a --s-sized box
+ * ═══════════════════════════════════════════════════════════════════════════*/
+.cardface {
+  --s: var(--s-md);
+  position: relative;
+  display: block;
+  width:  calc(180px * var(--s));
+  height: calc(240px * var(--s));
+  border-radius: calc(4px + 10px * var(--s));
+  overflow: hidden;
   flex-shrink: 0;
-  fill: var(--color-gold);
+  background: var(--color-surface-2);
+  box-shadow: 0 3px 10px rgba(0,0,0,0.55), 0 0 0 1px rgba(0,0,0,0.4);
 }
 
-/* card icon rendered at character card size when used as face-down placeholder */
-.character-block .sprite.card {
-  background-size: var(--char-bg-w) var(--char-bg-h);
-  background-position: calc(1 * -341.333px) calc(5 * -455.111px);
-  width:  var(--char-w);
-  height: var(--char-h);
-  border-radius: 8px;
-  box-shadow: 0 4px 12px rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,255,255,0.06);
+.cardface > .sprite {
+  position: absolute;
+  top: 0; left: 0;
+  transform: scale(var(--s));
+  transform-origin: 0 0;
 }
 
-/* Crown — row 6, col 0 — 32×32px */
-.sprite.crown {
-  background-size: var(--crown-bg-w) var(--crown-bg-h);
-  background-position: calc(0 * -32px) calc(6 * -42.667px + -5.333px);
-  width:  var(--crown-size);
-  height: var(--crown-size);
-  border-radius: 0;
-  box-shadow: none;
+.card-track .cardface, .card-track.cardface { --s: var(--s-track); }
+.card-xs .cardface { --s: var(--s-xs); }
+.card-sm .cardface { --s: var(--s-sm); }
+.card-md .cardface { --s: var(--s-md); }
+.card-lg .cardface { --s: var(--s-lg); }
+
+/* Face-down card back */
+.cardback {
+  background:
+    repeating-linear-gradient(45deg, rgba(212,166,74,0.06) 0 4px, transparent 4px 8px),
+    linear-gradient(160deg, #4a2f1c, #24160d);
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
+.cardback svg { width: 70%; height: 70%; }
+.cardback .cb-frame { fill: none; stroke: var(--color-gold-deep); stroke-width: 2; }
+.cardback .cb-gem   { fill: none; stroke: var(--color-gold); stroke-width: 2.5; }
+.cardback .cb-dot   { fill: var(--color-gold); }
 
 /* ═══════════════════════════════════════════════════════════════════════════
- * INTERACTIVE CARD STATES
+ * CARD BUTTON + STATES
  * ═══════════════════════════════════════════════════════════════════════════*/
-.card-item-clickable { cursor: pointer; }
+.card-wrap { display: inline-block; position: relative; flex-shrink: 0; }
 
-.card-item-clickable:hover {
-  transform: translateY(-10px) scale(1.05);
-  box-shadow: 0 14px 32px rgba(0,0,0,0.85);
-  z-index: 10;
+button.card {
+  all: unset;
+  box-sizing: border-box;
   position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  cursor: default;
+  border-radius: calc(4px + 10px * var(--s-md));
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+  touch-action: manipulation;
+  transition: transform 0.15s ease, filter 0.15s ease, opacity 0.15s ease;
 }
 
-.card-item-clickable:active { transform: translateY(-5px) scale(1.01); }
-
-.card-item.current,
-.current {
-  box-shadow:
-    0 0 0 3px var(--color-gold-glow),
-    0 8px 20px rgba(126,206,248,0.4) !important;
+button.card:focus-visible { outline: none; }
+button.card:focus-visible .cardface {
+  box-shadow: 0 0 0 3px var(--color-gold-glow), 0 6px 18px rgba(0,0,0,0.6);
 }
 
-.discard-block .card-item {
-  opacity: 0.5;
-  filter: saturate(0.5);
+/* Something to do with it → gold hover lift */
+button.card.is-interactive { cursor: pointer; }
+button.card.is-action.is-interactive:hover,
+button.card.is-pick.is-interactive:hover {
+  transform: translateY(-6px);
 }
+button.card.is-action.is-interactive:hover .cardface,
+button.card.is-pick.is-interactive:hover .cardface {
+  box-shadow: 0 0 0 2px var(--color-gold), 0 12px 26px rgba(0,0,0,0.75);
+}
+
+/* Targeting → red outline + crosshair, no lift */
+button.card.is-target.is-interactive { cursor: crosshair; }
+button.card.is-target.is-interactive:hover .cardface,
+button.card.is-target.is-interactive:focus-visible .cardface {
+  box-shadow: 0 0 0 3px var(--color-danger), 0 0 18px rgba(227,87,63,0.45);
+}
+button.card.is-target .cardface::after {
+  content: "";
+  position: absolute; inset: 0;
+  border-radius: inherit;
+  box-shadow: inset 0 0 0 1px rgba(227,87,63,0.55);
+  pointer-events: none;
+}
+
+/* Discard → full brightness, red ✕ on hover */
+button.card.is-discard.is-interactive { cursor: pointer; }
+button.card.is-discard.is-interactive:hover .cardface,
+button.card.is-discard.is-interactive:focus-visible .cardface {
+  box-shadow: 0 0 0 3px var(--color-danger), 0 8px 20px rgba(0,0,0,0.7);
+}
+
+.card-mark {
+  position: absolute;
+  top: 50%; left: 50%;
+  transform: translate(-50%, -60%) scale(0.8);
+  width: 44px; height: 44px;
+  border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 24px; font-weight: 700; line-height: 1;
+  color: #fff;
+  background: rgba(227,87,63,0.92);
+  box-shadow: 0 2px 10px rgba(0,0,0,0.6);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.12s, transform 0.12s;
+}
+button.card.is-interactive:hover .card-mark,
+button.card.is-interactive:focus-visible .card-mark {
+  opacity: 1;
+  transform: translate(-50%, -60%) scale(1);
+}
+
+/* Magician "redraw" selection */
+button.card.is-discard-select { cursor: pointer; }
+button.card.is-discard-select.is-selected .cardface {
+  box-shadow: 0 0 0 3px var(--color-danger), 0 6px 16px rgba(0,0,0,0.6);
+}
+button.card.is-discard-select.is-selected .cardface::after {
+  content: "✕";
+  position: absolute; inset: 0;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 34px; font-weight: 700; color: #fff;
+  background: rgba(120, 30, 20, 0.45);
+}
+
+/* Can't do it → dimmed, badge says why */
+button.card.is-disabled { cursor: not-allowed; }
+button.card.is-disabled .cardface { filter: grayscale(0.7) brightness(0.55); }
+
+button.card.is-selected:not(.is-discard-select) .cardface {
+  box-shadow: 0 0 0 3px var(--color-gold), 0 0 16px rgba(212,166,74,0.5);
+}
+
+button.card.is-current .cardface {
+  box-shadow: 0 0 0 3px var(--color-gold-glow), 0 0 18px rgba(240,201,109,0.5);
+}
+
+/* Newly built district glow */
+button.card.is-new .cardface { animation: newGlow 1.8s ease-out 1; }
+@keyframes newGlow {
+  0%   { box-shadow: 0 0 0 3px var(--color-gold-glow), 0 0 28px 6px rgba(240,201,109,0.85); transform: scale(1.06); }
+  100% { box-shadow: 0 3px 10px rgba(0,0,0,0.55), 0 0 0 1px rgba(0,0,0,0.4); transform: scale(1); }
+}
+
+.card-note {
+  font-size: 10px;
+  font-weight: 700;
+  color: #ffb4a6;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  line-height: 1;
+}
+
+.card-badge, .badge {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.2;
+  padding: 3px 7px;
+  border-radius: 999px;
+  white-space: nowrap;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  border: 1px solid transparent;
+}
+.badge-gold   { background: rgba(212,166,74,0.16); border-color: var(--color-gold-deep); color: var(--color-gold-glow); }
+.badge-muted  { background: rgba(0,0,0,0.35); border-color: var(--color-border-hi); color: var(--color-text-muted); }
+.badge-good   { background: rgba(140,197,111,0.14); border-color: #5b8a44; color: #bfe6a8; }
+.badge-danger { background: var(--color-danger-bg); border-color: var(--color-danger); color: #ffc2b6; }
 
 /* ═══════════════════════════════════════════════════════════════════════════
- * TOOLTIP
- * ═══════════════════════════════════════════════════════════════════════════
- * .tooltiptext is rendered via a React portal straight onto <body> (see the
- * Tooltip component in App.jsx), NOT nested inside .tooltip — the card rows
- * it used to live in scroll horizontally (overflow-x: auto), which forces
- * overflow-y to compute to `auto` too and clips anything that pokes past the
- * row's own box. A tooltip's height depends on the description's length, so
- * unlike the card hover-lift there's no fixed padding that could reliably
- * keep it from being clipped. Portaling escapes that ancestor entirely; the
- * Tooltip component sets `left`/`top` inline from getBoundingClientRect(). */
-.tooltip {
-  position: relative;
-  display: inline-block;
-}
+ * TOOLTIP (portaled to <body>)
+ * ═══════════════════════════════════════════════════════════════════════════*/
+.tooltip { position: relative; display: inline-block; }
 
 .tooltiptext {
   position: fixed;
-  z-index: 200;
-  /* JS sets left/top to the trigger's center / top edge; this transform does
-   * the rest — anchor the tooltip's bottom-center (or top-center, when
-   * flipped below) to that point, matching the old bottom:100%;left:50% look. */
+  z-index: 300;
   transform: translate(-50%, -100%);
-  width: 230px;
-  background: rgba(6,9,22,0.97);
+  width: 240px;
+  background: #1a120c;
   border: 1px solid var(--color-border-hi);
   color: var(--color-text);
   border-radius: 8px;
-  padding: 8px 10px;
-  font-size: 12px;
-  font-weight: normal;
+  padding: 9px 11px;
+  font-size: 12.5px;
   line-height: 1.5;
   pointer-events: none;
-  white-space: normal;
   text-align: left;
-  box-shadow: 0 8px 24px rgba(0,0,0,0.7);
-  animation: tooltipFadeIn 0.15s ease;
+  box-shadow: 0 10px 28px rgba(0,0,0,0.75);
+  animation: fadeIn 0.12s ease;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
 }
+.tooltiptext.tooltip-below { transform: translate(-50%, 0); }
 
-/* Flipped variant: shown below the card (e.g. the top-most "Choose character"
- * row, where there's no room above for a tooltip). JS already offsets `top`
- * past the card's bottom edge, so this only needs to re-center horizontally
- * (no -100% here — the box should hang down from `top`, not sit above it). */
-.tooltiptext.tooltip-below {
-  transform: translate(-50%, 0);
-}
+.tip-title { font-family: 'Cinzel', serif; color: var(--color-gold-glow); font-size: 13.5px; }
+.tip-meta  { color: var(--color-text-muted); font-size: 11.5px; }
+.tip-desc  { margin-top: 3px; }
 
-@keyframes tooltipFadeIn {
-  from { opacity: 0; }
-  to   { opacity: 1; }
-}
+@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
 
-.tooltiptext::after {
-  content: "";
-  position: absolute;
-  top: 100%;
-  left: 50%;
-  margin-left: -5px;
-  border: 5px solid transparent;
-  border-top-color: var(--color-border-hi);
+/* ═══════════════════════════════════════════════════════════════════════════
+ * LARGE CARD VIEWER (long-press / right-click)
+ * ═══════════════════════════════════════════════════════════════════════════*/
+.viewer-backdrop {
+  position: fixed; inset: 0;
+  z-index: 400;
+  background: rgba(10, 6, 3, 0.82);
+  backdrop-filter: blur(3px);
+  display: flex; align-items: center; justify-content: center;
+  padding: 16px;
+  animation: fadeIn 0.15s ease;
 }
-
-.tooltiptext.tooltip-below::after {
-  top: auto;
-  bottom: 100%;
-  border-top-color: transparent;
-  border-bottom-color: var(--color-border-hi);
+.viewer {
+  display: flex; flex-direction: column; align-items: center; gap: 12px;
+  max-width: min(440px, 100%);
+  max-height: 100%;
+  overflow-y: auto;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border-hi);
+  border-radius: 14px;
+  padding: 18px;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.8);
 }
+.viewer-face { box-shadow: 0 8px 30px rgba(0,0,0,0.7); }
+.viewer-text { text-align: center; }
+.viewer-text h2 { color: var(--color-gold-glow); font-size: 20px; }
+.viewer-meta { color: var(--color-text-muted); font-size: 13px; margin-top: 2px; }
+.viewer-desc { margin-top: 8px; font-size: 15px; line-height: 1.55; }
 
 /* ═══════════════════════════════════════════════════════════════════════════
  * ROOT LAYOUT
@@ -511,10 +641,12 @@ label { cursor: pointer; }
 .main-block {
   display: flex;
   flex-direction: column;
-  align-items: stretch;
   width: 100%;
+  max-width: 1200px;
+  margin: 0 auto;
   min-height: 100dvh;
 }
+.main-block.is-start { max-width: none; }
 
 /* ═══════════════════════════════════════════════════════════════════════════
  * START SCREEN
@@ -524,57 +656,52 @@ label { cursor: pointer; }
   flex-direction: column;
   align-items: center;
   min-height: 100dvh;
-  /* Lets .start-subblock's margin-top below track this element's own
-   * rendered width (via cqw) instead of the raw viewport width — needed so
-   * the same formula works once .main-block caps that width at 640px+. */
   container-type: inline-size;
   background-image: url('/startpic.jpg');
-  /* Mobile: contain, not cover. The box art (776×1024) is far less tall
-   * relative to its width than a phone viewport is relative to its width
-   * (.start-block is min-height:100dvh, and the form below the hero image
-   * pushes that height well past one screen) — cover scales the image up
-   * to fill that whole height, which makes it much wider than the screen
-   * and crops both edges, chopping the "CITADELS" title off. contain fits
-   * the whole image with no crop; no-repeat stops it tiling into the
-   * leftover space contain can leave below the image. */
   background-size: contain;
   background-repeat: no-repeat;
   background-position: center top;
   position: relative;
+  isolation: isolate;
 }
 
-/* Desktop: plenty of width relative to the visible hero height, so cover's
- * crop only trims the (unimportant) bottom of the art, not the sides. */
+/* Fade the bottom of the cover art into the page background so the image
+ * never ends in a hard edge (on phones `contain` stops it at ~132vw). */
+.start-block::before {
+  content: "";
+  position: absolute;
+  left: 0; right: 0; top: 0;
+  height: calc(100vw * 1024 / 776);
+  background: linear-gradient(to bottom, transparent 55%, var(--color-bg) 100%);
+  pointer-events: none;
+  z-index: -1;
+}
+
 @media (min-width: 640px) {
-  .start-block {
-    background-size: cover;
-  }
+  .start-block { background-size: cover; }
+  .start-block::before { height: 100%; background: linear-gradient(to bottom, transparent 60%, rgba(18,13,10,0.9) 100%); }
 }
 
 .start-crown {
   position: absolute;
-  right: 14px;
-  top: 14px;
-  filter: drop-shadow(0 2px 6px rgba(0,0,0,0.6));
+  right: 16px;
+  top: 16px;
+  width: 40px; height: 40px;
 }
 
 .start-subblock {
-  background: rgba(6, 9, 22, 0.95);
-  border: 1px solid var(--color-border);
-  border-radius: 12px;
-  /* Sit just under the box-art title (name + "CITADELS" + underline banner,
-   * which ends at ~31% of the art's own rendered height), never overlapping
-   * it, on both the mobile (contain) and desktop (cover) background modes —
-   * both scale the art by .start-block's width in the range this app
-   * renders at, so cqw tracks the title's bottom edge at any breakpoint. */
+  background: rgba(26, 18, 12, 0.94);
+  border: 1px solid var(--color-border-hi);
+  border-radius: 14px;
   margin: calc(32cqw + 20px) 16px 24px;
   width: calc(100% - 32px);
-  max-width: 400px;
+  max-width: 440px;
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 16px;
   padding: 20px;
   backdrop-filter: blur(6px);
+  box-shadow: 0 20px 50px rgba(0,0,0,0.6);
 }
 
 .start-head-block {
@@ -582,683 +709,650 @@ label { cursor: pointer; }
   padding-bottom: 12px;
   border-bottom: 1px solid var(--color-border);
 }
+.start-head-block h2 { font-size: 19px; color: var(--color-gold); }
 
-.start-head-block h2 {
-  font-size: 18px;
-  color: var(--color-gold);
-}
-
-.input-block {
-  display: flex;
-  justify-content: space-between;
+.input-grid {
+  display: grid;
+  grid-template-columns: auto 1fr;
   align-items: center;
-  gap: 10px;
-  font-size: 14px;
-  color: var(--color-text-muted);
+  gap: 10px 12px;
 }
+.input-grid label { color: var(--color-text-muted); font-size: 14px; }
 
-.input-block label { flex-shrink: 0; }
-.input-block input { flex: 1; min-width: 0; }
-
-.game-type-block { display: flex; flex-direction: column; gap: 6px; }
-
-.game-type-block > p {
+.game-type-block legend,
+.extended-block legend {
   font-size: 13px;
   color: var(--color-text-muted);
+  margin-bottom: 6px;
 }
 
-.input-radio-block {
+.segmented {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  border: 1px solid var(--color-border-hi);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.segmented input { position: absolute; opacity: 0; pointer-events: none; }
+.segmented label {
+  text-align: center;
+  padding: 10px;
+  cursor: pointer;
+  font-weight: 600;
+  color: var(--color-text-muted);
+  transition: background 0.12s, color 0.12s;
+}
+.segmented label + input + label { border-left: 1px solid var(--color-border-hi); }
+.segmented input:checked + label { background: rgba(212,166,74,0.18); color: var(--color-gold-glow); }
+.segmented input:focus-visible + label { outline: 2px solid var(--color-gold-glow); outline-offset: -2px; }
+
+.extended-block {
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  padding: 10px 12px 12px;
+}
+.extended-block legend { padding: 0 4px; }
+
+.extended-head {
   display: flex;
   align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.ext-counter { font-size: 13px; color: var(--color-text-muted); }
+.ext-counter.is-warn  { color: var(--color-amber); font-weight: 600; }
+.ext-counter.is-empty { color: var(--color-text-dim); }
+
+.ext-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
   gap: 8px;
-  font-size: 14px;
-  min-height: 32px;
 }
 
-.extended_characters_block {
-  border: 1px solid var(--color-border);
-  border-radius: 6px;
-  padding: 10px 12px;
+button.ext-toggle {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-}
-
-.extended_characters_block > p {
-  font-size: 13px;
-  color: var(--color-text-muted);
-  margin-bottom: 2px;
-}
-
-.ext_cb_block {
-  display: flex;
   align-items: center;
-  gap: 8px;
-  font-size: 13px;
-  min-height: 28px;
+  gap: 4px;
+  min-height: 0;
+  padding: 6px 2px 8px;
+  white-space: normal;
+  background: transparent;
+  border-color: var(--color-border);
+  color: var(--color-text-muted);
 }
+button.ext-toggle .cardface { filter: grayscale(0.85) brightness(0.6); transition: filter 0.15s; }
+button.ext-toggle.is-on { border-color: var(--color-gold); background: rgba(212,166,74,0.14); color: var(--color-text); }
+button.ext-toggle.is-on .cardface { filter: none; box-shadow: 0 0 0 2px var(--color-gold), 0 3px 10px rgba(0,0,0,0.6); }
+.ext-name { font-size: 12px; font-weight: 700; line-height: 1.1; text-align: center; }
+.ext-swap { font-size: 10.5px; font-weight: 500; color: var(--color-text-dim); line-height: 1.1; }
+button.ext-toggle.is-on .ext-swap { color: var(--color-text-muted); }
 
-.notice {
-  font-size: 12px;
-  color: var(--color-text-dim);
-  font-style: italic;
-  line-height: 1.4;
+.form-error {
+  color: #ffc2b6;
+  background: var(--color-danger-bg);
+  border: 1px solid var(--color-danger);
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 13px;
 }
 
 .start-button-block { text-align: center; }
-
-.start-button-block button {
-  min-width: 160px;
-  min-height: 52px;
-  font-size: 16px;
-  font-family: 'Cinzel', serif;
-  font-weight: 600;
-  background: linear-gradient(135deg, #1e3d7a, #0c1e4a);
-  border-color: var(--color-gold);
-  color: var(--color-gold);
-  letter-spacing: 0.04em;
-  box-shadow: 0 0 16px rgba(90,179,232,0.25);
-}
-
-.start-button-block button:hover:not(:disabled) {
-  background: linear-gradient(135deg, #2a5090, #1e3d7a);
-  box-shadow: 0 0 24px rgba(126,206,248,0.5);
-}
 
 .start-footer-block {
   display: flex;
   justify-content: space-between;
   font-size: 12px;
   color: var(--color-text-dim);
-  padding-top: 8px;
+  padding-top: 10px;
   border-top: 1px solid var(--color-border);
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
- * STICKY GAME HEADER
- * ═══════════════════════════════════════════════════════════════════════════
- * Grid, not a single flex column + an absolutely-positioned button: the
- * phase line (.head-phase) shows dynamic, often-long game-status text
- * ("Phaze: action. King summons X. Y's turn") that can run right up to —
- * or wrap onto a 2nd line below — wherever a same-row/absolutely-positioned
- * button happened to land. Grid areas give the finish button its own
- * reserved column, beside the title only, so growth in the phase text
- * (more chars, or wrapping to more lines) can never reach into it. */
-.head-block {
-  position: sticky;
-  top: 0;
-  z-index: 100;
-  background: var(--color-surface);
-  border-bottom: 2px solid var(--color-border);
-  padding: 8px 12px;
-  box-shadow: 0 4px 16px rgba(0,0,0,0.55);
-  display: grid;
-  grid-template-columns: 1fr auto;
-  column-gap: 12px;
-  row-gap: 2px;
-  grid-template-areas:
-    "title   finish"
-    "phase   phase"
-    "restart restart";
-  align-items: start;
+ * TOP BAR
+ * ═══════════════════════════════════════════════════════════════════════════*/
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px var(--gutter);
+  border-bottom: 1px solid var(--color-border);
 }
-
-.title-block { grid-area: title; min-width: 0; }
-.head-phase  { grid-area: phase; min-width: 0; }
-
-.title-block h1 {
-  font-size: 15px;
+.topbar-title { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; min-width: 0; }
+.topbar-title h1 {
+  font-size: 16px;
   color: var(--color-gold);
   letter-spacing: 0.03em;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-
-.title-block h3 {
-  font-size: 12px;
-  color: var(--color-text-muted);
-  font-weight: 400;
-  font-family: system-ui, sans-serif;
-}
-
-.head-phase {
-  font-size: 13px;
-  color: var(--color-text);
-  font-weight: 500;
-  font-family: system-ui, sans-serif;
-}
-
-.head-block button.finish {
-  grid-area: finish;
-  justify-self: end;
-  font-size: 12px;
-  min-height: 34px;
-  padding: 4px 12px;
-  background: rgba(160,30,30,0.18);
-  border-color: #8b3030;
-  color: #ff9090;
-}
-
-.head-block button.finish:hover:not(:disabled) {
-  background: rgba(160,30,30,0.38);
-  transform: scale(1.02);
-}
-
-.head-block button.restart {
-  grid-area: restart;
-  justify-self: center;
-  margin-top: 6px;
-  min-height: 40px;
-  background: linear-gradient(135deg, #1e4a14, #0a2808);
-  border-color: #4caf50;
-  color: #90ee90;
-}
+.topbar-sub { font-size: 12px; color: var(--color-text-dim); }
+.topbar .finish { color: var(--color-text-muted); }
+.topbar .finish:hover:not(:disabled) { border-color: var(--color-danger); color: #ffb4a6; }
 
 /* ═══════════════════════════════════════════════════════════════════════════
- * PLAYER BOARD
+ * PANELS — robot strip, centre, your city, hand
  * ═══════════════════════════════════════════════════════════════════════════*/
-.board {
-  display: flex;
-  border: 2px solid var(--color-border);
-  background: var(--color-surface);
-  overflow: hidden;
-}
-
-.board-1 { border-color: var(--color-gold); }
-
-.profile {
-  flex-shrink: 0;
-  display: flex;
-  flex-direction: column;
-  background: rgba(0,0,0,0.2);
-  border-right: 1px solid var(--color-border);
-}
-
-.profile-head {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 6px 8px;
-  border-bottom: 1px solid var(--color-border);
-  min-height: 36px;
-  gap: 4px;
-}
-
-.profile-name {
-  font-family: 'Cinzel', serif;
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--color-gold);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.profile-crown { flex-shrink: 0; }
-
-.resources {
-  display: flex;
-  flex-direction: row;
-  flex-wrap: wrap;
-  gap: 10px;
-  padding: 8px;
-  border-bottom: 1px solid var(--color-border);
-}
-
-.rs-block {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.resource-pic { display: flex; align-items: center; }
-
-.resource-count {
-  font-family: 'Cinzel', serif;
-  font-size: 22px;
-  font-weight: 700;
-  color: var(--color-gold);
-  line-height: 1;
-  min-width: 20px;
-}
-
-.score-block {
-  display: flex;
-  flex-direction: row;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 8px;
-  margin-top: auto;
-  font-size: 12px;
-  color: var(--color-text-muted);
-}
-
-.score {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--color-text);
-}
-
-/* Built districts panel */
-.districts {
-  flex: 1;
-  /* Never fully disappear when .profile grows wide with accumulated
-   * characters — .districts-list can still scroll horizontally within
-   * this floor if a player has built more districts than fit here. */
-  min-width: 160px;
-  display: flex;
-  flex-direction: column;
-}
-
-.districts-list {
-  overflow-x: auto;
-  overflow-y: hidden;
-  -webkit-overflow-scrolling: touch;
-  scrollbar-width: thin;
-  scrollbar-color: var(--color-border) transparent;
-  /* Extra top headroom for the .card-item-clickable:hover lift (Warlord/
-   * Diplomat district picking) — see .cards-list for the full explanation. */
-  padding: 20px 8px 8px;
-  /* Fixed height (one row of --card-h cards + padding) so this panel doesn't
-   * grow as a player builds more districts over the game — extra cards
-   * scroll horizontally within this same height instead. */
-  height: 268px; /* 240 (--card-h) + 20 (padding-top) + 8 (padding-bottom) */
-}
-
-.districts-list::-webkit-scrollbar { height: 4px; }
-.districts-list::-webkit-scrollbar-thumb {
-  background: var(--color-border);
-  border-radius: 2px;
-}
-
-/* ═══════════════════════════════════════════════════════════════════════════
- * CARD LISTS
- * ═══════════════════════════════════════════════════════════════════════════*/
-.cards-list {
-  display: flex;
-  flex-direction: row;
-  align-items: flex-start;
-  flex-wrap: nowrap;
-  gap: 6px;
-  /* Extra top headroom: setting overflow-x below makes overflow-y compute to
-   * `auto` too, which clips anything that pokes past the padding box — and
-   * .card-item-clickable:hover lifts the card with translateY(-10px) plus a
-   * scale(1.05) grow, which needs ~16px of room above the card to stay
-   * fully visible instead of getting clipped by this scroll container. */
-  padding: 20px 8px 8px;
-  overflow-x: auto;
-  -webkit-overflow-scrolling: touch;
-}
-
-.characters-list {
-  display: flex;
-  flex-direction: row;
-  align-items: flex-start;
-  gap: 8px;
-  padding: 8px;
-  width: 100%;
-  /* Chosen characters accumulate one per round for the whole game and must
-   * always stay fully visible — no scrolling. On mobile there's no room to
-   * grow sideways, so extra cards wrap onto new rows instead (this panel's
-   * height is allowed to grow here); see the 640px+ override below, where
-   * there's room to keep everything on one fixed-height row instead. */
-  flex-wrap: wrap;
-  /* Always reserve at least one row, even before a character is chosen. */
-  min-height: 273px; /* 13 (notes) + 4 (gap) + 240 (--char-h) + 8+8 (padding) */
-}
-
-.lighthouse-cards {
-  display: flex;
-  flex-direction: row;
-  flex-wrap: wrap;
-  gap: 8px;
-  padding: 8px;
-}
-
-/* ═══════════════════════════════════════════════════════════════════════════
- * CHARACTER BLOCK
- * ═══════════════════════════════════════════════════════════════════════════
- * Split into two elements so accumulated characters can shrink to keep
- * fitting on one row without ever touching the sprite's background-image
- * math (calibrated for an exact 180×240 rendered size — see the sprite
- * header comment):
- *
- *   .character-block        — the real flex-row item; this is what actually
- *                              shrinks (flex-shrink) once .characters-list
- *                              runs out of room. Also a container-query
- *                              container, so its child below can read back
- *                              its own (possibly shrunk) width.
- *   .character-block-scale  — kept at native 180px width — sprite math stays
- *                              exact — and visually scaled down to match its
- *                              parent's actual width with a plain transform.
- *                              `calc(100cqw / 180px)` is 1 at the natural
- *                              180px size and shrinks proportionally from
- *                              there, with no JS needed to compute it.
- * ═══════════════════════════════════════════════════════════════════════════*/
-.character-block {
-  display: block;
-  animation: charAppear 0.22s ease both;
-  container-type: inline-size;
-  flex: 0 1 180px;
-  min-width: 48px; /* sane floor so cards never shrink to unusable/zero size */
-}
-
-.character-block-scale {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 4px;
-  width: 180px;
-  transform: scale(calc(100cqw / 180px));
-  transform-origin: top left;
-}
-
-@keyframes charAppear {
-  from { opacity: 0; transform: scale(0.86); }
-  to   { opacity: 1; transform: scale(1); }
-}
-
-.character-block:nth-child(2) { animation-delay: 0.04s; }
-.character-block:nth-child(3) { animation-delay: 0.08s; }
-.character-block:nth-child(4) { animation-delay: 0.12s; }
-.character-block:nth-child(5) { animation-delay: 0.16s; }
-.character-block:nth-child(6) { animation-delay: 0.20s; }
-.character-block:nth-child(7) { animation-delay: 0.24s; }
-.character-block:nth-child(8) { animation-delay: 0.28s; }
-
-.character-notes {
-  font-size: 10px;
-  font-weight: 700;
-  color: var(--color-military);
-  min-height: 13px;
-  text-align: center;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-}
-
-/* ═══════════════════════════════════════════════════════════════════════════
- * CARD BLOCK (hand cards with per-card buttons)
- * ═══════════════════════════════════════════════════════════════════════════*/
-.card-block {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 4px;
-}
-
-.card-block button {
-  font-size: 11px;
-  min-height: 28px;
-  padding: 3px 8px;
-  width: 100%;
-  max-width: var(--card-w);
-}
-
-/* ═══════════════════════════════════════════════════════════════════════════
- * DISTRICTS BLOCK (player hand)
- * ═══════════════════════════════════════════════════════════════════════════*/
-.districts-block {
-  width: 100%;
-}
-
-.districts-block > p {
-  font-size: 13px;
-  color: var(--color-text-muted);
-  padding: 8px 12px 4px;
-  font-style: italic;
-}
-
-.districts-block .cards-list {
-  overflow-x: auto;
-  -webkit-overflow-scrolling: touch;
-  scrollbar-width: thin;
-  scrollbar-color: var(--color-border) transparent;
-  padding-bottom: 8px;
-  /* Scroll-fade on right edge */
-  mask-image: linear-gradient(to right, black 85%, transparent 100%);
-  -webkit-mask-image: linear-gradient(to right, black 85%, transparent 100%);
-}
-
-.districts-block .cards-list::-webkit-scrollbar { height: 4px; }
-.districts-block .cards-list::-webkit-scrollbar-thumb {
-  background: var(--color-border);
-  border-radius: 2px;
-}
-
-.discard-button {
-  margin: 6px 12px;
-  background: linear-gradient(135deg, #4a1010, #280808);
-  border-color: #c53535;
-  color: #ff9090;
-}
-
-/* ═══════════════════════════════════════════════════════════════════════════
- * ACTION PANEL
- * ═══════════════════════════════════════════════════════════════════════════*/
-.phaze-block {
-  width: 100%;
-  padding: 8px 12px;
-  border-top: 1px solid var(--color-border);
-}
-
-.phaze-block > p {
-  font-family: 'Cinzel', serif;
-  font-size: 14px;
-  color: var(--color-gold);
-  margin-bottom: 8px;
-}
-
-.actions-block {
-  display: flex;
-  flex-direction: row;
-  flex-wrap: wrap;
-  gap: 8px;
-  padding: 10px 12px;
-  width: 100%;
-  background: rgba(0,0,0,0.2);
-  border-top: 1px solid var(--color-border);
-  border-bottom: 1px solid var(--color-border);
-}
-
-.actions-block > button {
-  min-height: 52px;
-  font-size: 15px;
-  flex: 1 1 auto;
-  min-width: 130px;
-}
-
-.magic-buttons {
-  display: flex;
-  flex-direction: row;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 8px;
-  padding: 8px 12px;
-  width: 100%;
-  border-top: 1px solid var(--color-border);
-}
-
-.magic-buttons > button {
-  min-height: 52px;
-  font-size: 15px;
-  flex: 1 1 auto;
-  min-width: 130px;
-}
-
-/* ═══════════════════════════════════════════════════════════════════════════
- * GAME LOG
- * ═══════════════════════════════════════════════════════════════════════════*/
-.notes-head {
-  font-family: 'Cinzel', serif;
-  font-size: 13px;
-  color: var(--color-gold);
-  padding: 10px 12px 4px;
-  width: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
-/* Mobile log toggle button */
-button.log-toggle {
-  font-size: 12px;
-  min-height: 28px;
-  padding: 2px 10px;
-  background: var(--color-surface-2);
-  border-color: var(--color-border);
-  color: var(--color-text-muted);
-}
-
-/* Mobile: log collapsed by default, open when .log-open */
-.gamenotes-block {
-  width: 100%;
-  background: var(--color-surface);
-  border-top: 1px solid var(--color-border);
-  padding: 10px 14px;
-  font-size: 13px;
-  font-weight: normal;
-  font-style: italic;
-  color: var(--color-text-muted);
-  line-height: 1.7;
-  margin-bottom: 24px;
-  /* Collapsed on mobile */
-  max-height: 0;
-  overflow: hidden;
-  padding-top: 0;
-  padding-bottom: 0;
-  transition: max-height 0.25s ease, padding 0.2s ease;
-}
-
-.gamenotes-block.log-open {
-  max-height: 400px;
-  padding: 10px 14px;
-  overflow-y: auto;
-}
-
-/* ═══════════════════════════════════════════════════════════════════════════
- * BUTTON VARIANTS
- * ═══════════════════════════════════════════════════════════════════════════*/
-.btn-success {
-  background: linear-gradient(135deg, #224a14, #102808);
-  border-color: #4caf50;
-  color: #90ee90;
-}
-
-.btn-danger {
-  background: linear-gradient(135deg, #4a1414, #280808);
-  border-color: #e53935;
-  color: #ff9090;
-}
-
-/* ═══════════════════════════════════════════════════════════════════════════
- * RESPONSIVE LAYOUT
- * ═══════════════════════════════════════════════════════════════════════════*/
-
-/* ── Mobile base (all screens start here) ───────────────────────────────── */
-.board {
-  flex-direction: column;
+.robot-strip, .center, .my-city, .hand-dock {
+  background: linear-gradient(180deg, var(--color-surface), #1c140f);
+  border: 1px solid var(--color-border);
+  margin: 6px 0 0;
   border-left: none;
   border-right: none;
-  border-radius: 0;
-  margin: 4px 0;
+  transition: border-color 0.2s, box-shadow 0.2s, opacity 0.2s, filter 0.2s;
 }
 
-.profile {
-  width: 100%;
-  border-right: none;
+@media (min-width: 640px) {
+  .robot-strip, .center, .my-city, .hand-dock {
+    margin: 8px var(--gutter) 0;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius);
+  }
+}
+
+.strip-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  padding: 8px var(--gutter);
+}
+
+.player-name {
+  font-size: 15px;
+  color: var(--color-gold);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  max-width: 50vw;
+}
+.player-sub { color: var(--color-text-dim); font-size: 12px; font-family: system-ui, sans-serif; font-weight: 400; }
+
+.crown-badge { display: inline-flex; }
+.crown-badge .icon { width: 22px; height: 22px; }
+
+.stats {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  margin-left: auto;
+}
+
+.stat {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.stat .icon { width: 22px; height: 22px; }
+.stat-val {
+  font-family: 'Cinzel', serif;
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--color-text);
+  min-width: 14px;
+  line-height: 1;
+}
+.stat-val small { font-size: 11px; color: var(--color-text-dim); font-weight: 600; }
+
+.pop {
+  position: absolute;
+  left: 50%;
+  top: -4px;
+  font-weight: 800;
+  font-size: 15px;
+  pointer-events: none;
+  text-shadow: 0 1px 3px rgba(0,0,0,0.9);
+  animation: popFloat 1.4s ease-out forwards;
+}
+.pop-up   { color: var(--color-gold-glow); }
+.pop-down { color: #ff9d8a; }
+@keyframes popFloat {
+  0%   { opacity: 0; transform: translate(-50%, 4px) scale(0.8); }
+  15%  { opacity: 1; transform: translate(-50%, -6px) scale(1.15); }
+  100% { opacity: 0; transform: translate(-50%, -26px) scale(1); }
+}
+
+.score-wrap { display: inline-flex; }
+button.score-chip {
+  min-height: 28px;
+  padding: 2px 10px;
+  font-family: 'Cinzel', serif;
+  font-size: 15px;
+  font-weight: 700;
+  border-radius: 999px;
+  background: rgba(212,166,74,0.12);
+  border-color: var(--color-gold-deep);
+  color: var(--color-gold-glow);
+}
+.score-tip { display: flex; flex-direction: column; gap: 2px; }
+.score-row { display: flex; justify-content: space-between; gap: 12px; }
+.score-total { border-top: 1px solid var(--color-border-hi); margin-top: 3px; padding-top: 3px; font-weight: 700; color: var(--color-gold-glow); }
+
+.empty-note { font-size: 12px; color: var(--color-text-dim); font-style: italic; align-self: center; }
+.empty-slot {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: calc(240px * var(--s-sm) * 0.6);
+  border: 1px dashed var(--color-border-hi);
+  border-radius: 8px;
+  color: var(--color-text-dim);
+  font-size: 13px;
+  font-style: italic;
+  padding: 10px;
+  text-align: center;
+}
+
+/* ── Robot strip ── */
+.robot-strip.is-active {
+  border-color: var(--color-robot);
+  box-shadow: 0 0 0 1px var(--color-robot), 0 0 24px rgba(226,137,79,0.25);
+}
+.robot-strip.is-active .player-name { color: var(--color-robot); }
+
+.thinking-chip {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--color-robot);
+  background: var(--color-robot-bg);
+  border: 1px solid var(--color-robot);
+  border-radius: 999px;
+  padding: 2px 9px;
+}
+
+.strip-body {
+  display: flex;
+  gap: 10px;
+  align-items: flex-end;
+  padding: 0 var(--gutter) 10px;
+  min-width: 0;
+}
+.strip-chars { display: flex; gap: 4px; flex-shrink: 0; }
+.strip-chars:empty { display: none; }
+.strip-districts {
+  display: flex;
+  gap: 4px;
+  overflow-x: auto;
+  padding-top: 4px;
+  min-width: 0;
+  flex: 1;
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-border-hi) transparent;
+}
+.strip-body .card-xs .card-note { font-size: 8px; }
+
+/* ── Centre ── */
+.center { padding-bottom: 10px; }
+.center.is-waiting .center-main { opacity: 0.55; filter: saturate(0.6); }
+
+.prompt {
+  padding: 12px var(--gutter) 10px;
+  border-bottom: 1px solid var(--color-border);
+  border-left: 4px solid var(--color-gold);
+}
+.prompt-you   { border-left-color: var(--color-you);   background: linear-gradient(90deg, var(--color-you-bg), transparent 70%); }
+.prompt-robot { border-left-color: var(--color-robot); background: linear-gradient(90deg, var(--color-robot-bg), transparent 70%); }
+.prompt-end   { border-left-color: var(--color-gold);  background: linear-gradient(90deg, rgba(212,166,74,0.14), transparent 70%); }
+
+@media (min-width: 640px) {
+  .prompt { border-radius: var(--radius) var(--radius) 0 0; }
+}
+
+.prompt-who {
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.prompt-you .prompt-who   { color: var(--color-you-hi); }
+.prompt-robot .prompt-who { color: var(--color-robot); }
+.prompt-end .prompt-who   { color: var(--color-gold); }
+
+.prompt-title {
+  font-family: 'Cinzel', serif;
+  font-weight: 700;
+  font-size: 20px;
+  line-height: 1.25;
+  margin-top: 2px;
+}
+.prompt-you .prompt-title   { color: #e3f3fd; }
+.prompt-robot .prompt-title { color: #f7d6bf; }
+.prompt-end .prompt-title   { color: var(--color-gold-glow); font-size: 26px; }
+
+.prompt-sub { font-size: 13.5px; color: var(--color-text-muted); margin-top: 3px; }
+
+@media (min-width: 640px) {
+  .prompt-title { font-size: 24px; }
+}
+
+/* Character track */
+.track {
+  list-style: none;
+  display: grid;
+  grid-template-columns: repeat(8, minmax(0, 1fr));
+  gap: 4px;
+  padding: 8px var(--gutter);
   border-bottom: 1px solid var(--color-border);
 }
+.track-item {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 4px 2px 3px;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  min-width: 0;
+}
+.track-text { display: flex; align-items: baseline; gap: 3px; min-width: 0; max-width: 100%; }
+.track-num  { font-family: 'Cinzel', serif; font-weight: 700; font-size: 12px; color: var(--color-text-muted); }
+.track-name { display: none; font-size: 11px; color: var(--color-text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.track-owner {
+  font-size: 9.5px; font-weight: 700; line-height: 1.1;
+  max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.owner-you   .track-owner { color: var(--color-you-hi); }
+.owner-robot .track-owner { color: var(--color-robot); }
+.owner-none  .track-owner { color: var(--color-text-dim); }
+.owner-none .cardface { filter: grayscale(1) brightness(0.45); }
 
-/* ── Tablet / narrow desktop (640px+) ──────────────────────────────────── */
+.track-state {
+  position: absolute;
+  top: 0; right: max(2px, calc(50% - 30px));
+  width: 18px; height: 18px;
+  border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 11px; font-weight: 800;
+  color: #fff;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.7);
+}
+.st-assassinated .track-state { background: #9a2a1c; }
+.st-robbed .track-state       { background: #8a6421; }
+.st-bewitched .track-state    { background: #6c3a8e; }
+
+.track-item.is-called { opacity: 0.45; }
+.track-item.is-called .cardface { filter: grayscale(0.6); }
+.track-item.is-current {
+  border-color: var(--color-gold);
+  background: rgba(212,166,74,0.12);
+  opacity: 1;
+}
+.track-item.is-current .track-num,
+.track-item.is-current .track-name { color: var(--color-gold-glow); }
+.track-item.is-current.owner-you { border-color: var(--color-you); background: var(--color-you-bg); }
+.track-item.is-current.owner-robot { border-color: var(--color-robot); background: var(--color-robot-bg); }
+
+.owner-long { display: none; }
 @media (min-width: 640px) {
-  .main-block {
-    max-width: 1100px;
-    margin: 0 auto;
-  }
-
-  .board {
-    flex-direction: row;
-    border: 2px solid var(--color-border);
-    border-radius: 8px;
-    margin: 8px 12px;
-  }
-
-  .board-1 { border-color: var(--color-gold); }
-
-  .profile {
-    /* Grow to fit however many characters have accumulated instead of a
-     * fixed 200px, so .characters-list below never needs to scroll —
-     * .districts (flex:1) yields the space. flex-basis comes from
-     * --char-flex-basis (set inline in PlayerBoard from player.characters.
-     * length — CSS alone can't count children); flex-shrink:1 (overriding
-     * the base rule's :0) lets .profile give up some of that width once
-     * .districts hits its own min-width and there's genuinely no more room,
-     * at which point .character-block below shrinks to compensate. */
-    flex: 0 1 var(--char-flex-basis, 196px);
-    border-right: 1px solid var(--color-border);
-    border-bottom: none;
-  }
-
-  .characters-list {
-    /* Room to grow sideways here, so keep everything on one row: fixed
-     * height (never grows/shrinks) and no scrolling — .profile above sizes
-     * to fit it (or shrinks it via .character-block, once .profile itself
-     * runs out of room). */
-    flex-wrap: nowrap;
-    height: 273px;
-  }
-
-  .head-block { padding: 10px 16px; }
-
-  .gamenotes-block {
-    margin: 8px 12px 24px;
-    border: 1px solid var(--color-border);
-    border-radius: 8px;
-  }
+  .owner-long { display: inline; }
+  .owner-short { display: none; }
+  .track-name { display: inline; }
+  .track-owner { font-size: 10.5px; }
 }
 
-/* ── Tablet+: log always visible, toggle button hidden ─────────────────── */
-@media (min-width: 640px) {
-  button.log-toggle { display: none; }
-
-  .gamenotes-block {
-    max-height: none;
-    overflow: visible;
-    padding: 10px 14px;
-    margin: 8px 12px 24px;
-    border: 1px solid var(--color-border);
-    border-radius: 8px;
-  }
+/* Centre grid: main action area + log */
+.center-grid {
+  display: flex;
+  flex-direction: column;
 }
+.center-main {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px var(--gutter) 0;
+  min-width: 0;
+  transition: opacity 0.2s, filter 0.2s;
+}
+.center-main:empty { display: none; }
 
-/* ── Full desktop (1024px+) ─────────────────────────────────────────────── */
 @media (min-width: 1024px) {
-  .head-block {
-    /* Plenty of width here for title + phase text + button on one row. */
-    grid-template-columns: auto 1fr auto;
-    grid-template-areas:
-      "title   phase   finish"
-      "restart restart restart";
-    align-items: baseline;
-    column-gap: 16px;
+  .center-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 280px;
+    align-items: start;
   }
+  .center-main:empty { display: flex; min-height: 1px; }
+}
 
-  .title-block {
-    display: flex;
-    align-items: baseline;
-    gap: 14px;
+.card-row {
+  display: flex;
+  gap: 8px;
+  padding: 8px 2px 4px;
+  overflow-x: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-border-hi) transparent;
+}
+.card-row.wrap { flex-wrap: wrap; overflow-x: visible; }
+.card-row.scroll-box { max-height: 50vh; overflow-y: auto; }
+
+.btn-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 2px 0;
+}
+.btn-row > button { flex: 1 1 auto; min-width: 140px; }
+.btn-row > .btn-end { flex: 0 1 auto; min-width: 150px; }
+
+@media (min-width: 640px) {
+  .btn-row > button { flex: 0 1 auto; }
+}
+
+.target-panel { display: flex; flex-direction: column; gap: 2px; }
+.panel-title { font-size: 13px; color: var(--color-danger); letter-spacing: 0.04em; }
+
+.graveyard-prompt { display: flex; flex-wrap: wrap; gap: 14px; align-items: center; }
+
+/* End of game */
+.end-summary { display: flex; flex-direction: column; align-items: center; gap: 14px; padding: 6px 0 4px; }
+.end-tables { display: flex; flex-wrap: wrap; justify-content: center; gap: 14px; width: 100%; }
+.end-table {
+  border-collapse: collapse;
+  min-width: 220px;
+  flex: 1 1 220px;
+  max-width: 340px;
+  background: rgba(0,0,0,0.2);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.end-table caption { font-family: 'Cinzel', serif; color: var(--color-gold); font-weight: 700; padding: 6px; text-align: left; }
+.end-table th, .end-table td { padding: 5px 10px; border-top: 1px solid var(--color-border); font-size: 13.5px; }
+.end-table th { text-align: left; font-weight: 500; color: var(--color-text-muted); }
+.end-table td { text-align: right; font-weight: 700; }
+.end-total th, .end-total td { color: var(--color-gold-glow); font-size: 15px; }
+
+/* Game log */
+.log {
+  margin: 10px var(--gutter) 0;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: rgba(0,0,0,0.25);
+  min-width: 0;
+}
+button.log-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 40px;
+  border: none;
+  background: transparent;
+  padding: 6px 10px;
+  font-weight: 500;
+  font-size: 13px;
+  text-align: left;
+}
+.log-head-title { font-family: 'Cinzel', serif; color: var(--color-gold); font-weight: 700; flex-shrink: 0; }
+.log-latest { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--color-text-muted); }
+.log-title { display: none; font-size: 13px; color: var(--color-gold); padding: 8px 10px 4px; }
+
+.log-list {
+  list-style: none;
+  display: none;
+  max-height: 260px;
+  overflow-y: auto;
+  padding: 0 10px 8px;
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+.log.is-open .log-list { display: block; }
+.log-list li { padding: 4px 0 4px 8px; border-left: 2px solid transparent; }
+.log-list li + li { margin-top: 2px; }
+.log-you   { border-left-color: var(--color-you) !important; }
+.log-robot { border-left-color: var(--color-robot) !important; }
+.log-call  { color: var(--color-text-muted); font-style: italic; }
+.log-round {
+  color: var(--color-gold);
+  font-family: 'Cinzel', serif;
+  font-weight: 700;
+  border-top: 1px solid var(--color-border);
+  padding-top: 6px !important;
+}
+.log-empty { color: var(--color-text-dim); font-style: italic; }
+.log-list li:first-child { animation: fadeIn 0.3s ease; }
+
+@media (min-width: 1024px) {
+  .log { margin: 10px var(--gutter) 0 0; align-self: stretch; }
+  button.log-head { display: none; }
+  .log-title { display: block; }
+  .log-list { display: block; max-height: 300px; }
+}
+
+/* ── Your city ── */
+.my-city.is-active {
+  border-color: var(--color-you);
+  box-shadow: 0 0 0 1px var(--color-you), 0 0 24px rgba(90,179,232,0.18);
+}
+.city-body {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  padding: 0 var(--gutter) 10px;
+  min-width: 0;
+}
+.city-chars { display: flex; gap: 6px; flex-shrink: 0; padding-top: 4px; }
+.city-districts {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  gap: 6px;
+  overflow-x: auto;
+  padding: 4px 2px 4px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-border-hi) transparent;
+}
+.city-chars .empty-note { padding: 0 4px; }
+
+/* ── Hand dock ── */
+.hand-dock {
+  margin-top: 8px;
+  padding-bottom: env(safe-area-inset-bottom);
+  box-shadow: 0 -8px 24px rgba(0,0,0,0.55);
+  max-height: 60vh;
+  display: flex;
+  flex-direction: column;
+}
+@media (min-width: 640px) {
+  .hand-dock { margin-bottom: 8px; }
+}
+.hand-dock.is-waiting .hand-cards { opacity: 0.6; filter: saturate(0.6); }
+
+.hand-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 8px var(--gutter) 0;
+}
+.hand-head h2 { font-size: 14px; color: var(--color-gold); }
+.hand-count { color: var(--color-text-dim); font-family: system-ui, sans-serif; font-weight: 400; font-size: 12px; }
+.hand-tip { margin-left: auto; font-size: 11.5px; color: var(--color-text-dim); }
+
+.hand-hint {
+  position: relative;
+  height: 0;
+  z-index: 5;
+}
+.hint-bubble {
+  position: absolute;
+  left: var(--gutter);
+  right: var(--gutter);
+  top: 4px;
+  margin: 0 auto;
+  width: fit-content;
+  max-width: calc(100% - 2 * var(--gutter));
+  background: #3a1d14;
+  border: 1px solid var(--color-danger);
+  color: #ffd6cc;
+  font-size: 13.5px;
+  font-weight: 600;
+  padding: 7px 12px;
+  border-radius: 8px;
+  box-shadow: 0 6px 18px rgba(0,0,0,0.6);
+  animation: hintIn 0.2s ease;
+}
+@keyframes hintIn { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
+
+.hand-cards {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 10px var(--gutter) 10px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-border-hi) transparent;
+  transition: opacity 0.2s, filter 0.2s;
+}
+.hand-cards .card-wrap { padding-top: 6px; }
+
+@media (min-width: 1024px) {
+  .hand-cards { flex-wrap: wrap; overflow: visible; }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+ * SWEETALERT2 THEME (only the "Finish game" confirmation remains a popup)
+ * ═══════════════════════════════════════════════════════════════════════════*/
+.swal2-container.swal2-backdrop-show { background: rgba(10, 6, 3, 0.8) !important; }
+.swal2-popup {
+  background: var(--color-surface) !important;
+  color: var(--color-text) !important;
+  border: 1px solid var(--color-border-hi) !important;
+  border-radius: 14px !important;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.8) !important;
+}
+.swal2-title { font-family: 'Cinzel', serif !important; color: var(--color-gold-glow) !important; }
+.swal2-html-container { color: var(--color-text-muted) !important; }
+.swal2-icon.swal2-warning { border-color: var(--color-amber) !important; color: var(--color-amber) !important; }
+.swal2-icon.swal2-error { border-color: var(--color-danger) !important; }
+.swal2-icon.swal2-error [class^='swal2-x-mark-line'] { background-color: var(--color-danger) !important; }
+.swal2-actions { gap: 10px; }
+.swal2-actions .btn { min-width: 110px; }
+.swal2-actions .btn-success {
+  background: linear-gradient(180deg, #e0b65a, #b98a32);
+  border: 1px solid #f0c96d;
+  color: #24180c;
+}
+.swal2-actions .btn-danger {
+  background: transparent;
+  border: 1px solid var(--color-border-hi);
+  color: var(--color-text-muted);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+ * REDUCED MOTION
+ * ═══════════════════════════════════════════════════════════════════════════*/
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
   }
-
-  .title-block h1 { font-size: 17px; }
-  .head-phase { font-size: 14px; }
-
-  .head-block button.finish { align-self: center; }
-  .head-block button.finish:hover:not(:disabled) { transform: scale(1.02); }
-
-  /* Unwrap hand cards on large screens */
-  .districts-block .cards-list {
-    flex-wrap: wrap;
-    overflow-x: visible;
-    mask-image: none;
-    -webkit-mask-image: none;
-  }
+  button.card.is-interactive:hover { transform: none !important; }
+  .pop { display: none; }
+  .dots span { opacity: 1; }
 }
