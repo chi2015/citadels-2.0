@@ -144,6 +144,20 @@ function turnState(game) {
 
 let logSeq = 0;
 
+const LOG_KEY = 'gameLog';
+
+function loadLog() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(LOG_KEY));
+    if (!Array.isArray(saved)) return [];
+    // Continue numbering after the restored entries so React keys stay unique.
+    logSeq = saved.reduce((m, e) => Math.max(m, e.id || 0), logSeq);
+    return saved;
+  } catch {
+    return [];
+  }
+}
+
 function takeSnapshot(game) {
   const s = { phase: game.phaze };
   if (!game.player1 || !game.characters) return s;
@@ -1324,10 +1338,7 @@ function GameBoard({ game, update, log }) {
       <section className={`center who-${prompt.who}${ts.robot ? ' is-waiting' : ''}`} aria-label="Current turn">
         <PromptBar prompt={prompt} />
         <CharacterTrack game={game} />
-        <div className="center-grid">
-          <div className="center-main">{choice}</div>
-          <GameLog log={log} />
-        </div>
+        <div className="center-main">{choice}</div>
       </section>
 
       <MyCity game={game} active={ts.human} onSwapOwn={diplomatMode && !p1.districtOnSwap ? handleSwap : null} />
@@ -1341,6 +1352,8 @@ function GameBoard({ game, update, log }) {
         showHint={showHint}
         act={act}
       />
+
+      <GameLog log={log} />
     </>
   );
 }
@@ -1359,7 +1372,6 @@ export default function App() {
   const [extendedChars, setExtendedChars] = useState({ 1: false, 2: false, 3: false, 4: false, 5: false, 6: false, 7: false, 8: false });
   const [startError, setStartError] = useState('');
   const [viewing, setViewing] = useState(null);
-  const [log, setLog] = useState([]);
   const [gameKey, setGameKey] = useState(0);
   const snapRef = useRef(null);
 
@@ -1370,6 +1382,16 @@ export default function App() {
   }
   const game = gameRef.current;
   const update = useCallback(() => forceUpdate(), []);
+
+  // Restore the log of a resumed game; a fresh game starts with an empty log.
+  const [log, setLog] = useState(() => (game.phazeIsStart ? [] : loadLog()));
+
+  useEffect(() => {
+    try {
+      if (game.phazeIsStart) localStorage.removeItem(LOG_KEY);
+      else localStorage.setItem(LOG_KEY, JSON.stringify(log));
+    } catch { /* storage unavailable or full — log just won't persist */ }
+  }, [log, game.phazeIsStart]);
 
   useEffect(() => {
     game.notifyUI = update;
