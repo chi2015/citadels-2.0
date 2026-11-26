@@ -7,7 +7,7 @@ import { Strategy } from './Strategy.js';
 export class Game {
   constructor() {
     this.name = 'new game';
-    this.version = '3.1.0';
+    this.version = '2.1.0';
     this.player1 = null;
     this.player2 = null;
     this.player1_strategy = null;
